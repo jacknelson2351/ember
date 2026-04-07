@@ -114,12 +114,12 @@ export default function App() {
     document.documentElement.style.setProperty('--app-font-size', `${appearance.fontSize}px`);
     document.documentElement.style.setProperty('--app-mono-font', appearance.monoFont);
     document.documentElement.style.setProperty('--app-shell-font', '"Avenir Next", "Segoe UI", sans-serif');
-    document.documentElement.style.background = 'transparent';
-    document.body.style.background = 'transparent';
+    document.documentElement.style.background = '#050914';
+    document.body.style.background = '#050914';
     const window = getCurrentWindow();
     window.setAlwaysOnTop(appearance.alwaysOnTop).catch(() => {});
-    window.setBackgroundColor([0, 0, 0, 0]).catch(() => {});
-    getCurrentWebview().setBackgroundColor([0, 0, 0, 0]).catch(() => {});
+    window.setBackgroundColor([5, 9, 20, 255]).catch(() => {});
+    getCurrentWebview().setBackgroundColor([5, 9, 20, 255]).catch(() => {});
   }, [appearance.alwaysOnTop, appearance.fontSize, appearance.monoFont]);
 
   // Resize window when panel opens/closes or dimensions change.
@@ -157,10 +157,10 @@ export default function App() {
   }, []);
 
   return (
-    <div className="h-screen w-screen overflow-hidden bg-transparent">
+    <div className="h-screen w-screen overflow-hidden bg-[#050914]">
       <div className="flex h-full flex-col items-center">
         <header
-          className="flex h-[58px] w-full select-none items-center gap-3 rounded-full border border-white/12 bg-[rgba(15,20,30,0.92)] px-4 shadow-[0_22px_60px_rgba(0,0,0,0.42)] backdrop-blur-xl"
+          className="flex h-[58px] w-full select-none items-center gap-3 rounded-full border border-white/12 bg-[#0f141e] px-4 shadow-[0_22px_60px_rgba(0,0,0,0.42)]"
         >
           <button
             type="button"
@@ -235,7 +235,7 @@ export default function App() {
         </header>
 
         {expanded && (
-          <main className="mt-3 flex min-h-0 w-full flex-1 overflow-hidden rounded-[28px] border border-white/10 bg-[rgba(10,15,25,0.94)] shadow-[0_28px_80px_rgba(0,0,0,0.5)] backdrop-blur-xl">
+          <main className="mt-3 flex min-h-0 w-full flex-1 overflow-hidden rounded-[28px] border border-white/10 bg-[#0a0f19] shadow-[0_28px_80px_rgba(0,0,0,0.5)]">
             <div className="h-full min-h-0 w-full">
               {(activePanel === 'chat' || activePanel === 'thoughts') && <ChatPanel />}
               {activePanel === 'files' && <FilesPanel />}

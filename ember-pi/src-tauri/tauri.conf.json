@@ -21,7 +21,7 @@
         "minHeight": 58,
         "maxWidth": 1440,
         "decorations": false,
-        "transparent": true,
+        "transparent": false,
         "shadow": false,
         "visible": false,
         "resizable": true,

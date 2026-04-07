@@ -23,7 +23,9 @@ const QUICK_PROMPTS = [
 ];
 
 const WORKSPACE_GUIDANCE =
-  'The current working directory is the shared workspace root inside the container. Prefer relative file paths for read, write, edit, and bash operations when you are working in the workspace. Use /workspace only when you need to refer to the absolute in-container mount path.';
+  'The current working directory is the shared workspace root inside the container. You are allowed to create, edit, move, and overwrite files under /workspace. Prefer relative file paths for read, write, edit, and bash operations when you are working in the workspace. Anything you create that the user should be able to inspect must be saved under /workspace, and you should tell the user the path. Do not say you cannot ensure the user can see generated files if you can write them into /workspace. Use /workspace only when you need to refer to the absolute in-container mount path.';
+const IDENTITY_GUIDANCE =
+  'Your name is Ember. You are operating inside a dockerized Kali Linux environment with security tooling available. The shared workspace is mounted inside the container at /workspace.';
 
 export function ChatPanel() {
   const {
@@ -127,7 +129,7 @@ export function ChatPanel() {
 
   /** Build effective system prompt — base + memory-injected notes */
   const buildSystemPrompt = useCallback((): string => {
-    const basePrompt = `${systemPrompt}\n\n${WORKSPACE_GUIDANCE}`;
+    const basePrompt = `${systemPrompt}\n\n${IDENTITY_GUIDANCE}\n\n${WORKSPACE_GUIDANCE}`;
     if (memoryMode === 'off') return basePrompt;
     const pinned = notes.filter((n) => n.pinned);
     const selected = memoryMode === 'full' ? notes : pinned;
@@ -648,7 +650,7 @@ export function ChatPanel() {
         ) : (
           <div className="space-y-5 px-5">
             {messages.map((message) => {
-              const { thought, response } = parseContent(message.content);
+              const { thought, response, hasThought } = parseContent(message.content);
               const isUser = message.role === 'user';
               return (
                 <div key={message.id} className={`flex gap-2.5 ${isUser ? 'flex-row-reverse' : 'flex-row'}`}>
@@ -683,12 +685,12 @@ export function ChatPanel() {
                     )}
 
                     {/* Reasoning */}
-                    {thought && (
-                      <ReasoningBlock thought={thought} streaming={Boolean(message.streaming && !response)} />
+                    {hasThought && (
+                      <ReasoningBlock thought={thought ?? ''} streaming={Boolean(message.streaming && !response)} />
                     )}
 
                     {/* Message text */}
-                    {(response || (!thought && message.content) || message.streaming) && (
+                    {(response || (!hasThought && message.content) || (message.streaming && !hasThought)) && (
                       <div className={
                         isUser
                           ? 'rounded-2xl rounded-tr-sm bg-[rgba(255,109,43,0.12)] px-3.5 py-2 text-white/90'
@@ -700,7 +702,7 @@ export function ChatPanel() {
                           </span>
                         ) : (
                           <MessageContent
-                            text={response || (!thought ? message.content : '')}
+                            text={response || (!hasThought ? message.content : '')}
                             streaming={message.streaming}
                           />
                         )}
@@ -851,18 +853,20 @@ export function ChatPanel() {
 
 // ── Sub-components ─────────────────────────────────────────────────────────────
 
-function parseContent(content: string): { thought: string | null; response: string } {
+function parseContent(content: string): { thought: string | null; response: string; hasThought: boolean } {
   const trimmed = content.trimStart();
-  if (trimmed.startsWith('[THOUGHT]')) {
-    const body = trimmed.slice(9);
+  const thoughtPrefix = trimmed.match(/^\[THOUGHT\]:?\s*/i);
+  if (thoughtPrefix) {
+    const body = trimmed.slice(thoughtPrefix[0].length);
     const end = /\n{2,}|\[(?:RESPONSE|FINAL)\]\s*/.exec(body);
     if (end) {
       return {
         thought: body.slice(0, end.index).trim(),
         response: body.slice(end.index + end[0].length).trim(),
+        hasThought: true,
       };
     }
-    return { thought: body.trim(), response: '' };
+    return { thought: body.trim(), response: '', hasThought: true };
   }
 
   const thinkTag = trimmed.match(/^<think(?:ing)?>\s*([\s\S]*?)(?:<\/think(?:ing)?>\s*([\s\S]*))?$/i);
@@ -870,10 +874,20 @@ function parseContent(content: string): { thought: string | null; response: stri
     return {
       thought: thinkTag[1]?.trim() || null,
       response: thinkTag[2]?.trim() || '',
+      hasThought: true,
     };
   }
 
-  return { thought: null, response: content };
+  const openThink = trimmed.match(/^<think(?:ing)?>\s*([\s\S]*)$/i);
+  if (openThink) {
+    return {
+      thought: openThink[1]?.trim() || '',
+      response: '',
+      hasThought: true,
+    };
+  }
+
+  return { thought: null, response: content, hasThought: false };
 }
 
 /** Tools that write files — show a file card with reveal button. */

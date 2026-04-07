@@ -28,12 +28,12 @@
   #root {
     width: 100%;
     height: 100%;
-    background: transparent !important;
+    background: var(--ember-bg) !important;
   }
 
   body {
     margin: 0;
-    background: transparent;
+    background: var(--ember-bg);
     color: var(--ember-text);
     font-family: var(--app-shell-font);
     font-size: var(--app-font-size);
