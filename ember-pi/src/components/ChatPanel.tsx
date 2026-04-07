@@ -110,6 +110,8 @@ export function ChatPanel() {
   const [stderrLines, setStderrLines] = useState<string[]>([]);
   // Happy flash — true for ~1.8s when agent finishes a turn
   const [happyFlash, setHappyFlash] = useState(false);
+  const [stopRequested, setStopRequested] = useState(false);
+  const restartAfterStopRef = useRef(false);
 
   // ── File attachments ─────────────────────────────────────────────────────────
   const [attachments, setAttachments] = useState<{ name: string; path: string }[]>([]);
@@ -274,6 +276,7 @@ export function ChatPanel() {
       switch (ev.type) {
         case 'agent_start': {
           resetAccum();
+          setStopRequested(false);
           // Guard: skip if there's already a streaming agent bubble (duplicate pi process)
           const currentMsgs = useEphemeralStore.getState().messages;
           const lastMsg = currentMsgs[currentMsgs.length - 1];
@@ -345,6 +348,7 @@ export function ChatPanel() {
               content: accText.current,
               timestamp: Date.now(),
             });
+            setStopRequested(false);
             setAgentStatus('idle');
             setPiStatus('ready');
           }
@@ -410,6 +414,7 @@ export function ChatPanel() {
         case 'agent_end': {
           // Ensure streaming is cleared and status is idle even if 'done' was missed
           updateLastMessage({ streaming: false });
+          setStopRequested(false);
           setAgentStatus('idle');
           setPiStatus('ready');
           // Happy flash for 1.8s if the agent actually produced content
@@ -428,6 +433,14 @@ export function ChatPanel() {
 
     const unlistenEnded = onPiEnded(() => {
       sessionActiveRef.current = false;
+      if (restartAfterStopRef.current && containerStatusRef.current === 'running') {
+        restartAfterStopRef.current = false;
+        setStopRequested(false);
+        setAgentStatus('idle');
+        startSession().catch(() => {});
+        return;
+      }
+      setStopRequested(false);
       setAgentStatus('idle');
       setPiStatus('offline');
     });
@@ -441,7 +454,7 @@ export function ChatPanel() {
       unlistenEnded.then((fn) => fn());
       unlistenStderr.then((fn) => fn());
     };
-  }, [addMessage, addSessionEvent, setAgentStatus, setPiStatus, updateLastMessage, upsertThoughtLine]);
+  }, [addMessage, addSessionEvent, setAgentStatus, setPiStatus, startSession, updateLastMessage, upsertThoughtLine]);
 
   // ── Send ───────────────────────────────────────────────────────────────────
 
@@ -513,6 +526,27 @@ export function ChatPanel() {
     }
   }, [addMessage, addSessionEvent, agentStatus, attachments, inputValue, setAgentStatus, setInputValue, startSession]);
 
+  const stopRun = useCallback(async () => {
+    if (agentStatus !== 'running' || stopRequested) return;
+    restartAfterStopRef.current = true;
+    setStopRequested(true);
+    updateLastMessage({ streaming: false });
+    try {
+      await stopPiSession();
+    } catch (e) {
+      restartAfterStopRef.current = false;
+      setStopRequested(false);
+      setAgentStatus('error');
+      setPiStatus('error');
+      addMessage({
+        id: crypto.randomUUID(),
+        role: 'agent',
+        content: `Error stopping Ember: ${e instanceof Error ? e.message : String(e)}`,
+        timestamp: Date.now(),
+      });
+    }
+  }, [addMessage, agentStatus, setAgentStatus, stopRequested, updateLastMessage]);
+
   const onInputKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault();
@@ -521,6 +555,7 @@ export function ChatPanel() {
   };
 
   const canSend = (Boolean(inputValue.trim()) || attachments.length > 0) && agentStatus !== 'running';
+  const canStop = agentStatus === 'running' && !stopRequested;
   const isRunning = agentStatus === 'running';
   const sharedPath = runtimeHealth?.sharedPath ?? '';
 
@@ -536,6 +571,15 @@ export function ChatPanel() {
         <span className="text-[11px] text-slate-500 min-w-0 flex-1 truncate">
           {modelConfig.provider}/{modelConfig.model || '—'}
         </span>
+        {isRunning && (
+          <button
+            onClick={stopRun}
+            disabled={!canStop}
+            className="text-[11px] text-red-300/80 hover:text-red-200 transition disabled:opacity-50"
+          >
+            {stopRequested ? 'stopping…' : 'stop'}
+          </button>
+        )}
         {(piStatus === 'offline' || piStatus === 'error') && containerStatus === 'running' && (
           <button
             onClick={() => { sessionActiveRef.current = false; startSession(); }}
@@ -780,13 +824,24 @@ export function ChatPanel() {
             }}
           />
           <button
-            onClick={send}
-            disabled={!canSend}
-            className="mb-0.5 shrink-0 rounded-full p-1.5 transition disabled:opacity-20 enabled:hover:bg-white/8 enabled:text-[rgba(255,109,43,0.9)]"
+            onClick={isRunning ? () => { stopRun(); } : send}
+            disabled={isRunning ? !canStop : !canSend}
+            title={isRunning ? (stopRequested ? 'Stopping…' : 'Stop current response') : 'Send'}
+            className={`mb-0.5 shrink-0 rounded-full p-1.5 transition disabled:opacity-20 enabled:hover:bg-white/8 ${
+              isRunning
+                ? 'enabled:text-red-300'
+                : 'enabled:text-[rgba(255,109,43,0.9)]'
+            }`}
           >
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-              <path d="M1 7h12M7 1l6 6-6 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
+            {isRunning ? (
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                <rect x="3.25" y="3.25" width="7.5" height="7.5" rx="1.3" fill="currentColor" />
+              </svg>
+            ) : (
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                <path d="M1 7h12M7 1l6 6-6 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            )}
           </button>
         </div>
       </div>
