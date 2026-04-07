@@ -1,0 +1,21 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Capability for the main window",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-set-background-color",
+    "core:window:allow-set-size",
+    "core:window:allow-set-position",
+    "core:window:allow-outer-position",
+    "core:window:allow-scale-factor",
+    "core:window:allow-start-dragging",
+    "core:window:allow-set-always-on-top",
+    "core:window:allow-current-monitor",
+    "core:window:allow-primary-monitor",
+    "core:window:allow-close",
+    "core:webview:allow-set-webview-background-color",
+    "opener:default"
+  ]
+}

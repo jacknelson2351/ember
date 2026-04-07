@@ -1,0 +1,12 @@
+.DS_Store
+
+# Local agent/workflow artifacts
+/.claude/
+/.codex/
+/.agents/
+/planning.md
+/progress.md
+
+# Local runtime state
+/memory/
+/shared/
