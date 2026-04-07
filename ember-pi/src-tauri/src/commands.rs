@@ -2,11 +2,14 @@ use serde::{Deserialize, Serialize};
 use std::{
     fs,
     io::{BufWriter, Write},
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::{Command, Output},
     sync::Mutex,
 };
 use tauri::{Emitter, Manager};
+
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 
 // ── Pi session state ─────────────────────────────────────────────────────────
 
@@ -265,7 +268,15 @@ pub async fn read_file(path: String) -> Result<String, String> {
 
 #[tauri::command]
 pub async fn write_file(path: String, content: String) -> Result<(), String> {
-    fs::write(&path, content).map_err(|e| e.to_string())
+    let path_buf = PathBuf::from(&path);
+    if let Some(parent) = path_buf.parent() {
+        if !parent.as_os_str().is_empty() {
+            fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+            relax_dir_permissions(parent).map_err(|e| e.to_string())?;
+        }
+    }
+    fs::write(&path_buf, content).map_err(|e| e.to_string())?;
+    relax_file_permissions(&path_buf).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -274,17 +285,28 @@ pub async fn copy_file(src: String, dest: String) -> Result<(), String> {
     if let Some(parent) = PathBuf::from(&dest).parent() {
         if !parent.as_os_str().is_empty() {
             fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+            relax_dir_permissions(parent).map_err(|e| e.to_string())?;
         }
     }
-    fs::copy(&src, &dest).map(|_| ()).map_err(|e| format!("{src} → {dest}: {e}"))
+    fs::copy(&src, &dest).map_err(|e| format!("{src} → {dest}: {e}"))?;
+    relax_file_permissions(Path::new(&dest)).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub async fn write_file_bytes(path: String, data_base64: String) -> Result<(), String> {
     use std::io::Write as _;
     let bytes = base64_decode(&data_base64)?;
-    let mut file = fs::File::create(&path).map_err(|e| e.to_string())?;
+    let path_buf = PathBuf::from(&path);
+    if let Some(parent) = path_buf.parent() {
+        if !parent.as_os_str().is_empty() {
+            fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+            relax_dir_permissions(parent).map_err(|e| e.to_string())?;
+        }
+    }
+    let mut file = fs::File::create(&path_buf).map_err(|e| e.to_string())?;
     file.write_all(&bytes).map_err(|e| e.to_string())
+        ?;
+    relax_file_permissions(&path_buf).map_err(|e| e.to_string())
 }
 
 /// Write a text file inside a running container via `docker exec`.
@@ -398,6 +420,7 @@ fn ensure_runtime_dirs(app: &tauri::AppHandle) -> Result<RuntimePaths, String> {
     seed_file(config.join("agent.json"), DEFAULT_AGENT_CONFIG)?;
     seed_file(memory.join("notes.json"), "[]\n")?;
     seed_file(memory.join("session.json"), "[]\n")?;
+    relax_shared_tree(&shared).map_err(|e| format!("failed to prepare shared workspace permissions: {e}"))?;
 
     Ok(RuntimePaths {
         shared,
@@ -425,6 +448,37 @@ fn docker_context_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     }
 
     Err("Docker build context not found in resources.".to_string())
+}
+
+fn relax_shared_tree(root: &Path) -> std::io::Result<()> {
+    relax_dir_permissions(root)?;
+    for entry in fs::read_dir(root)? {
+        let entry = entry?;
+        let path = entry.path();
+        let meta = entry.metadata()?;
+        if meta.is_dir() {
+            relax_shared_tree(&path)?;
+        } else if meta.is_file() {
+            relax_file_permissions(&path)?;
+        }
+    }
+    Ok(())
+}
+
+fn relax_dir_permissions(path: &Path) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        fs::set_permissions(path, fs::Permissions::from_mode(0o777))?;
+    }
+    Ok(())
+}
+
+fn relax_file_permissions(path: &Path) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        fs::set_permissions(path, fs::Permissions::from_mode(0o666))?;
+    }
+    Ok(())
 }
 
 fn seed_file(path: PathBuf, contents: &str) -> Result<(), String> {
