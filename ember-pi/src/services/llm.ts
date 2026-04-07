@@ -1,5 +1,27 @@
 import type { ChatMessage, ModelConfig, OutputLine } from '../types';
 
+function isOpenAICompatibleProvider(provider: ModelConfig['provider']): boolean {
+  return provider !== 'anthropic' && provider !== 'google';
+}
+
+function isLocalProvider(provider: ModelConfig['provider']): boolean {
+  return provider === 'lmstudio' || provider === 'ollama' || provider === 'custom';
+}
+
+function normalizeEndpoint(endpoint: string): string {
+  return endpoint.trim().replace(/\/$/, '');
+}
+
+function localProviderUnavailableMessage(config: ModelConfig, error: unknown): string {
+  if (config.provider === 'lmstudio') {
+    return `LM Studio is not reachable at ${config.endpoint}. Load a model in LM Studio, start the local server, and confirm Ember can reach port 1234.`;
+  }
+  if (config.provider === 'ollama') {
+    return `Ollama is not reachable at ${config.endpoint}. Make sure Ollama is running and the OpenAI-compatible endpoint is available.`;
+  }
+  return String(error);
+}
+
 // ── Tool definitions ─────────────────────────────────────────────────────────
 
 const TOOLS_COMMON = [
@@ -568,8 +590,16 @@ export function classifyLine(raw: string): OutputLine {
 export async function testConnection(config: ModelConfig): Promise<{ ok: boolean; latency: number; message: string }> {
   const start = Date.now();
   try {
-    if (config.provider !== 'anthropic' && !config.endpoint.trim()) {
+    if (isOpenAICompatibleProvider(config.provider) && !config.endpoint.trim()) {
       return { ok: false, latency: Date.now() - start, message: 'Endpoint URL is required.' };
+    }
+
+    if (isLocalProvider(config.provider) && !config.model.trim()) {
+      return {
+        ok: false,
+        latency: Date.now() - start,
+        message: 'Select a real model first. Use Discover Models after the local server is running.',
+      };
     }
 
     if (config.provider === 'anthropic') {
@@ -590,18 +620,33 @@ export async function testConnection(config: ModelConfig): Promise<{ ok: boolean
       return { ok: false, latency, message: `HTTP ${res.status}` };
     }
 
-    const endpoint = config.endpoint.replace(/\/$/, '');
+    const endpoint = normalizeEndpoint(config.endpoint);
     const res = await fetch(`${endpoint}/models`, {
       headers: config.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : {},
     });
     const latency = Date.now() - start;
     if (res.ok) {
+      const json = await res.json();
+      const modelIds = Array.isArray(json.data)
+        ? json.data.map((entry: { id?: string }) => entry.id).filter(Boolean)
+        : [];
+      if (config.model.trim() && modelIds.length > 0 && !modelIds.includes(config.model.trim())) {
+        return {
+          ok: false,
+          latency,
+          message: `Connected, but model "${config.model}" was not found. Use Discover Models and pick an exact ID.`,
+        };
+      }
       const providerName = config.provider === 'lmstudio' ? 'LM Studio' : config.provider;
       return { ok: true, latency, message: `${providerName} connected (${latency}ms)` };
     }
     return { ok: false, latency, message: `HTTP ${res.status}` };
   } catch (e) {
-    return { ok: false, latency: Date.now() - start, message: String(e) };
+    return {
+      ok: false,
+      latency: Date.now() - start,
+      message: isLocalProvider(config.provider) ? localProviderUnavailableMessage(config, e) : String(e),
+    };
   }
 }
 
@@ -629,7 +674,7 @@ export async function discoverModels(config: ModelConfig): Promise<string[]> {
         : [];
     }
 
-    const endpoint = config.endpoint.replace(/\/$/, '');
+    const endpoint = normalizeEndpoint(config.endpoint);
     if (!endpoint) return [];
 
     const res = await fetch(`${endpoint}/models`, {

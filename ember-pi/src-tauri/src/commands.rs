@@ -22,7 +22,7 @@ const DEFAULT_IMAGE_TAG: &str = "coalfire-ember-runtime:latest";
 const DEFAULT_MODEL_CONFIG: &str = r#"{
   "provider": "lmstudio",
   "endpoint": "http://localhost:1234/v1",
-  "model": "local-model",
+  "model": "",
   "apiKey": ""
 }
 "#;

@@ -59,6 +59,17 @@ function apiKeyEnvVar(provider: string): string {
 /** Providers that pi supports natively with a simple --provider flag. */
 const NATIVE_PROVIDERS = new Set(['anthropic', 'openai', 'google']);
 
+function fallbackLocalApiKey(provider: ModelConfig['provider']): string {
+  switch (provider) {
+    case 'lmstudio':
+      return 'lm-studio';
+    case 'ollama':
+      return 'ollama';
+    default:
+      return 'local-provider';
+  }
+}
+
 /**
  * For local / custom providers, replace `localhost` or `127.0.0.1` with
  * `host.docker.internal` so pi (running inside Docker) can reach the host.
@@ -75,26 +86,20 @@ function dockerifyEndpoint(url: string): string {
  */
 function buildModelsJson(config: ModelConfig): string {
   const providerId = config.provider; // e.g. "lmstudio", "ollama", "custom"
-  const baseUrl = dockerifyEndpoint(config.endpoint ?? '');
-  const modelId = config.model || 'local-model';
+  const baseUrl = dockerifyEndpoint(config.endpoint.trim());
+  const modelId = config.model.trim();
 
   const providerConfig = {
     baseUrl,
     api: 'openai-completions',
-    ...(config.apiKey ? { apiKey: config.apiKey } : {}),
+    apiKey: config.apiKey?.trim() || fallbackLocalApiKey(providerId),
+    compat: {
+      supportsDeveloperRole: false,
+      supportsReasoningEffort: false,
+    },
     models: [
       {
         id: modelId,
-        name: modelId,
-        reasoning: false,
-        input: ['text'],
-        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-        contextWindow: 128000,
-        maxTokens: 8192,
-        compat: {
-          supportsDeveloperRole: false,
-          supportsReasoningEffort: false,
-        },
       },
     ],
   };
@@ -114,6 +119,11 @@ export async function startPiSession(
   config: ModelConfig,
   systemPrompt?: string,
 ): Promise<void> {
+  const modelId = config.model.trim();
+  if (!modelId) {
+    throw new Error('Select a model first. In LM Studio, load a model and click Discover Models.');
+  }
+
   const envVars: [string, string][] = [];
   const extraArgs: string[] = [];
 
@@ -124,10 +134,15 @@ export async function startPiSession(
       envVars.push([envKey, config.apiKey]);
     }
     extraArgs.push('--provider', config.provider);
-    if (config.model) {
-      extraArgs.push('--model', config.model);
+    if (modelId) {
+      extraArgs.push('--model', modelId);
     }
   } else {
+    const endpoint = config.endpoint.trim();
+    if (!endpoint) {
+      throw new Error('Endpoint URL is required for local and custom providers.');
+    }
+
     // Local / custom provider — write models.json into the container first
     const modelsJson = buildModelsJson(config);
     await invoke('container_write_file', {
@@ -136,8 +151,8 @@ export async function startPiSession(
       content: modelsJson,
     });
     extraArgs.push('--provider', config.provider);
-    if (config.model) {
-      extraArgs.push('--model', config.model);
+    if (modelId) {
+      extraArgs.push('--model', modelId);
     }
   }
 

@@ -15,6 +15,11 @@ import type {
   RuntimeHealth,
 } from '../types';
 
+function sanitizeModelConfig(modelConfig: ModelConfig): ModelConfig {
+  const model = modelConfig.model === 'local-model' ? '' : modelConfig.model;
+  return { ...modelConfig, endpoint: modelConfig.endpoint.trim(), model };
+}
+
 // ── Persisted slice (survives reload) ───────────────────────────────────────
 
 interface PersistedState {
@@ -58,9 +63,9 @@ const usePersistedStore = create<PersistedState>()(
       modelConfig: {
         provider: 'lmstudio',
         endpoint: 'http://localhost:1234/v1',
-        model: 'local-model',
+        model: '',
       },
-      setModelConfig: (modelConfig) => set({ modelConfig }),
+      setModelConfig: (modelConfig) => set({ modelConfig: sanitizeModelConfig(modelConfig) }),
 
       notes: [],
       addNote: (note) => set((s) => ({ notes: [...s.notes, note] })),
@@ -124,7 +129,17 @@ const usePersistedStore = create<PersistedState>()(
       setAppearance: (patch) =>
         set((s) => ({ appearance: { ...s.appearance, ...patch } })),
     }),
-    { name: 'ember-pi-persist' }
+    {
+      name: 'ember-pi-persist',
+      merge: (persistedState, currentState) => {
+        const persisted = persistedState as Partial<PersistedState> | undefined;
+        return {
+          ...currentState,
+          ...persisted,
+          modelConfig: sanitizeModelConfig(persisted?.modelConfig ?? currentState.modelConfig),
+        };
+      },
+    }
   )
 );
 

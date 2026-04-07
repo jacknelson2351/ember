@@ -26,7 +26,7 @@ const PROVIDERS: {
     eyebrow: 'Local desktop',
     description: 'Best local-first path. Assumes a local OpenAI-compatible endpoint on port 1234.',
     endpoint: 'http://localhost:1234/v1',
-    model: 'local-model',
+    model: '',
     keyPlaceholder: 'Not required',
   },
   {
@@ -35,7 +35,7 @@ const PROVIDERS: {
     eyebrow: 'Local runtime',
     description: 'Targets a local Ollama instance running with the OpenAI compatibility layer.',
     endpoint: 'http://localhost:11434/v1',
-    model: 'llama3.2',
+    model: '',
     keyPlaceholder: 'Not required',
   },
   {
@@ -270,10 +270,15 @@ export function SetupWizard({
                   <input
                     value={draft.model}
                     onChange={(event) => setDraft({ ...draft, model: event.target.value })}
-                    placeholder={providerMeta.model || 'Enter a model id'}
+                    placeholder={providerMeta.model || 'Discover models or enter an exact model id'}
                     className="wizard-input"
                   />
                 </FormField>
+                {draft.provider === 'lmstudio' && (
+                  <p className="text-xs leading-6 text-slate-400">
+                    Load a model in LM Studio, turn on the local server, then use `Discover Models`.
+                  </p>
+                )}
 
                 <FormField label="API key">
                   <input

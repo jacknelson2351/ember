@@ -52,8 +52,8 @@ const PROVIDERS: { id: ModelConfig['provider']; label: string; endpoint: string;
   { id: 'openai',    label: 'OpenAI / ChatGPT',   endpoint: 'https://api.openai.com/v1',    model: 'gpt-4o',             needsKey: true  },
   { id: 'anthropic', label: 'Anthropic / Claude',  endpoint: '',                             model: 'claude-opus-4-6',    needsKey: true  },
   { id: 'google',    label: 'Google / Gemini',     endpoint: '',                             model: 'gemini-2.0-flash',   needsKey: true  },
-  { id: 'lmstudio',  label: 'LM Studio',           endpoint: 'http://localhost:1234/v1',    model: 'local-model',        needsKey: false },
-  { id: 'ollama',    label: 'Ollama',              endpoint: 'http://localhost:11434/v1',   model: 'llama3.2',           needsKey: false },
+  { id: 'lmstudio',  label: 'LM Studio',           endpoint: 'http://localhost:1234/v1',    model: '',                   needsKey: false },
+  { id: 'ollama',    label: 'Ollama',              endpoint: 'http://localhost:11434/v1',   model: '',                   needsKey: false },
   { id: 'custom',    label: 'Custom',              endpoint: '',                             model: '',                   needsKey: false },
 ];
 
@@ -147,8 +147,13 @@ function ModelSection() {
         <Input
           value={local.model}
           onChange={(v) => setLocal({ ...local, model: v })}
-          placeholder={currentProvider.model || 'model-name'}
+          placeholder={currentProvider.model || 'Discover Models or enter an exact model id'}
         />
+        {local.provider === 'lmstudio' && (
+          <p className="mt-2 text-[11px] leading-5 text-slate-500">
+            In LM Studio, load a model and start the local server first. Then click `Discover`.
+          </p>
+        )}
         {foundModels.length > 0 && (
           <div className="mt-2 flex flex-wrap gap-1.5">
             {foundModels.map((m) => (
