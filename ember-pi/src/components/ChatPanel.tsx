@@ -798,11 +798,27 @@ export function ChatPanel() {
 
 function parseContent(content: string): { thought: string | null; response: string } {
   const trimmed = content.trimStart();
-  if (!trimmed.startsWith('[THOUGHT]')) return { thought: null, response: content };
-  const body = trimmed.slice(9);
-  const end = /\n{2,}|\[(?:RESPONSE|FINAL)\]\s*/.exec(body);
-  if (end) return { thought: body.slice(0, end.index).trim(), response: body.slice(end.index + end[0].length).trim() };
-  return { thought: body.trim(), response: '' };
+  if (trimmed.startsWith('[THOUGHT]')) {
+    const body = trimmed.slice(9);
+    const end = /\n{2,}|\[(?:RESPONSE|FINAL)\]\s*/.exec(body);
+    if (end) {
+      return {
+        thought: body.slice(0, end.index).trim(),
+        response: body.slice(end.index + end[0].length).trim(),
+      };
+    }
+    return { thought: body.trim(), response: '' };
+  }
+
+  const thinkTag = trimmed.match(/^<think(?:ing)?>\s*([\s\S]*?)(?:<\/think(?:ing)?>\s*([\s\S]*))?$/i);
+  if (thinkTag) {
+    return {
+      thought: thinkTag[1]?.trim() || null,
+      response: thinkTag[2]?.trim() || '',
+    };
+  }
+
+  return { thought: null, response: content };
 }
 
 /** Tools that write files — show a file card with reveal button. */
