@@ -29,9 +29,9 @@ const GRID: number[][] = [
   [0,0,4,4,5,6,6,5,4,4,0,0],
   [0,3,4,4,5,5,5,5,4,4,3,0],
   [3,3,3,4,4,5,5,4,4,3,3,0],
-  [3,3,3,3,3,4,4,3,3,3,3,3],
-  [3,3,3,3,3,4,4,3,3,3,3,3],
-  [3,3,3,3,3,4,4,3,3,3,3,3],
+  [0,3,3,3,3,4,4,3,3,3,3,0],
+  [0,3,3,3,3,4,4,3,3,3,3,0],
+  [0,3,3,3,4,4,4,4,3,3,3,0],
   [3,3,4,4,4,4,4,4,4,3,3,0],
   [2,3,3,3,3,4,4,3,3,3,2,0],
   [2,2,3,2,3,3,3,2,3,2,2,0],
@@ -89,7 +89,70 @@ const SCAN = [-1, -1, 0, 1, 1, 0];
 
 // ── Eye rendering helpers ─────────────────────────────────────────────────────
 
-interface PixelSpec { x: number; y: number; fill: string }
+interface PixelSpec {
+  x: number;
+  y: number;
+  fill: string;
+  opacity?: number;
+}
+
+const FIRE_FLICKER_FRAMES: PixelSpec[][] = [
+  [
+    { x: 1, y: 3, fill: '#FFD166', opacity: 0.5 },
+    { x: 0, y: 5, fill: '#FF5B1B', opacity: 0.82 },
+    { x: 1, y: 4, fill: '#FF8C42', opacity: 0.92 },
+    { x: 10, y: 4, fill: '#FFD166', opacity: 0.58 },
+    { x: 11, y: 6, fill: '#FF5B1B', opacity: 0.78 },
+    { x: 10, y: 5, fill: '#FF8C42', opacity: 0.9 },
+    { x: 4, y: 0, fill: '#FFF0A0', opacity: 0.35 },
+  ],
+  [
+    { x: 1, y: 2, fill: '#FFD166', opacity: 0.56 },
+    { x: 0, y: 4, fill: '#FF5B1B', opacity: 0.84 },
+    { x: 1, y: 3, fill: '#FF8C42', opacity: 0.94 },
+    { x: 10, y: 3, fill: '#FFD166', opacity: 0.54 },
+    { x: 11, y: 5, fill: '#FF5B1B', opacity: 0.8 },
+    { x: 10, y: 4, fill: '#FF8C42', opacity: 0.92 },
+    { x: 8, y: 0, fill: '#FFF0A0', opacity: 0.42 },
+  ],
+  [
+    { x: 0, y: 6, fill: '#FF5B1B', opacity: 0.76 },
+    { x: 1, y: 5, fill: '#FF8C42', opacity: 0.88 },
+    { x: 2, y: 3, fill: '#FFD166', opacity: 0.44 },
+    { x: 11, y: 4, fill: '#FF5B1B', opacity: 0.74 },
+    { x: 10, y: 3, fill: '#FF8C42', opacity: 0.86 },
+    { x: 9, y: 1, fill: '#FFD166', opacity: 0.5 },
+    { x: 5, y: 0, fill: '#FFF0A0', opacity: 0.3 },
+  ],
+  [
+    { x: 0, y: 5, fill: '#FF5B1B', opacity: 0.8 },
+    { x: 1, y: 4, fill: '#FF8C42', opacity: 0.9 },
+    { x: 2, y: 2, fill: '#FFD166', opacity: 0.4 },
+    { x: 11, y: 5, fill: '#FF5B1B', opacity: 0.82 },
+    { x: 10, y: 4, fill: '#FF8C42', opacity: 0.9 },
+    { x: 9, y: 2, fill: '#FFD166', opacity: 0.46 },
+    { x: 7, y: 0, fill: '#FFF0A0', opacity: 0.32 },
+  ],
+];
+
+const EMBER_FRAMES: PixelSpec[][] = [
+  [
+    { x: 3, y: -1, fill: '#FFD166', opacity: 0.46 },
+    { x: 9, y: -2, fill: '#FFF0A0', opacity: 0.28 },
+  ],
+  [
+    { x: 4, y: -2, fill: '#FFD166', opacity: 0.38 },
+    { x: 8, y: -1, fill: '#FFF0A0', opacity: 0.34 },
+  ],
+  [
+    { x: 2, y: -1, fill: '#FF8C42', opacity: 0.34 },
+    { x: 8, y: -2, fill: '#FFD166', opacity: 0.3 },
+  ],
+  [
+    { x: 4, y: -1, fill: '#FFD166', opacity: 0.42 },
+    { x: 10, y: -1, fill: '#FFF0A0', opacity: 0.26 },
+  ],
+];
 
 function roundEye(cx: number, cy: number, pdx: number, pdy: number): PixelSpec[] {
   const out: PixelSpec[] = [];
@@ -148,6 +211,7 @@ export function EmberBuddy({
   const [idleIdx,  setIdleIdx]  = useState(0);
   const [orbitIdx, setOrbitIdx] = useState(0);
   const [scanIdx,  setScanIdx]  = useState(0);
+  const [flareIdx, setFlareIdx] = useState(0);
 
   // Idle cycling
   useEffect(() => {
@@ -177,6 +241,19 @@ export function EmberBuddy({
   useEffect(() => {
     if (mode !== 'streaming') return;
     const id = setInterval(() => setScanIdx(i => (i + 1) % SCAN.length), 280);
+    return () => clearInterval(id);
+  }, [mode]);
+
+  // Detached flame bits keep the silhouette lively even when the body is still.
+  useEffect(() => {
+    const interval =
+      mode === 'excited' ? 120 :
+      mode === 'thinking' ? 150 :
+      mode === 'streaming' ? 180 :
+      mode === 'happy' ? 170 :
+      mode === 'error' ? 220 :
+      260;
+    const id = setInterval(() => setFlareIdx(i => (i + 1) % FIRE_FLICKER_FRAMES.length), interval);
     return () => clearInterval(id);
   }, [mode]);
 
@@ -242,6 +319,15 @@ export function EmberBuddy({
     </>
   ) : null;
 
+  const flameFlicker = FIRE_FLICKER_FRAMES[flareIdx % FIRE_FLICKER_FRAMES.length];
+  const emberTrail = EMBER_FRAMES[flareIdx % EMBER_FRAMES.length];
+  const accentOpacity =
+    mode === 'error' ? 0.55 :
+    mode === 'thinking' ? 0.9 :
+    mode === 'excited' ? 1 :
+    mode === 'happy' ? 0.95 :
+    0.78;
+
   // ── Error flicker: dim the top of the flame ──────────────────────────────
   // (achieved by CSS animation + reduced core brightness)
 
@@ -259,6 +345,19 @@ export function EmberBuddy({
           animation: flameAnim,
         }}
       >
+        {/* Detached side licks keep the ember from reading as one solid mass. */}
+        {flameFlicker.map((p, i) => (
+          <rect
+            key={`a${i}`}
+            x={p.x}
+            y={p.y}
+            width={1}
+            height={1}
+            fill={mode === 'error' && p.fill === '#FFF0A0' ? '#FF8C42' : p.fill}
+            opacity={(p.opacity ?? 1) * accentOpacity}
+          />
+        ))}
+
         {/* Flame body */}
         {GRID.flatMap((row, ry) =>
           row.map((c, cx) => {
@@ -271,11 +370,31 @@ export function EmberBuddy({
 
         {/* Eyes */}
         {[...leftPx, ...rightPx].map((p, i) => (
-          <rect key={`e${i}`} x={p.x} y={p.y} width={1} height={1} fill={p.fill} />
+          <rect
+            key={`e${i}`}
+            x={p.x}
+            y={p.y}
+            width={1}
+            height={1}
+            fill={p.fill}
+            opacity={p.opacity}
+          />
         ))}
 
         {sparks}
         {happySparkles}
+        {mode !== 'error' &&
+          emberTrail.map((p, i) => (
+            <rect
+              key={`r${i}`}
+              x={p.x}
+              y={p.y}
+              width={1}
+              height={1}
+              fill={p.fill}
+              opacity={p.opacity}
+            />
+          ))}
       </g>
     </svg>
   );
