@@ -1,4 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import ReactMarkdown, { type Components } from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { revealItemInDir } from '@tauri-apps/plugin-opener';
 import { useAppStore, useEphemeralStore } from '../stores/appStore';
 import { writeFileBytes } from '../services/files';
@@ -250,8 +252,8 @@ export function ChatPanel() {
       execOutputs.current = {};
     };
 
-    const syncThoughtLine = () => {
-      const content = accThought.current.trim();
+    const syncThoughtLine = (nextContent?: string | null) => {
+      const content = (nextContent ?? accThought.current).trim();
       if (!content) return;
 
       const id = activeThoughtId.current ?? crypto.randomUUID();
@@ -294,10 +296,13 @@ export function ChatPanel() {
 
           if (d.type === 'text_delta' && d.delta) {
             accText.current += d.delta;
+            const nextContent = accThought.current
+              ? `[THOUGHT]${accThought.current}\n\n${accText.current}`
+              : accText.current;
+            const parsed = parseContent(nextContent);
+            if (parsed.thought) syncThoughtLine(parsed.thought);
             updateLastMessage({
-              content: accThought.current
-                ? `[THOUGHT]${accThought.current}\n\n${accText.current}`
-                : accText.current,
+              content: nextContent,
               streaming: true,
               toolCalls: [...accTools.current],
             });
@@ -324,10 +329,11 @@ export function ChatPanel() {
             updateLastMessage({ toolCalls: [...accTools.current] });
           } else if (d.type === 'done') {
             // Turn complete — finalize
-            syncThoughtLine();
             const finalContent = accThought.current
               ? `[THOUGHT]${accThought.current}\n\n${accText.current}`
               : accText.current;
+            const parsed = parseContent(finalContent);
+            if (parsed.thought) syncThoughtLine(parsed.thought);
             updateLastMessage({
               content: finalContent,
               streaming: false,
@@ -864,6 +870,66 @@ function ToolCallBlock({ call, sharedPath }: { call: ToolCall; sharedPath: strin
   const result = call.result ?? '';
   const lines = result.split('\n').filter(Boolean);
 
+  if (isBash && cmd) {
+    return (
+      <div className="overflow-hidden rounded-xl border border-white/[0.07] bg-white/[0.03]">
+        <div className="flex items-center justify-between border-b border-white/[0.06] px-3 py-1.5">
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="rounded-md border border-white/8 bg-black/25 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.08em] text-slate-400">
+              bash
+            </span>
+            {call.running && (
+              <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse" />
+            )}
+            {!call.running && call.error && (
+              <span className="h-1.5 w-1.5 rounded-full bg-red-400" />
+            )}
+          </div>
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => {
+                navigator.clipboard.writeText(cmd).catch(() => {});
+              }}
+              className="rounded px-1.5 py-0.5 text-[10px] text-slate-500 transition hover:bg-white/8 hover:text-slate-200"
+            >
+              copy
+            </button>
+            {(result || call.running) && (
+              <button
+                onClick={() => setOpen((v) => !v)}
+                className="rounded px-1.5 py-0.5 text-[10px] text-slate-500 transition hover:bg-white/8 hover:text-slate-200"
+              >
+                {open ? 'hide output' : 'show output'}
+              </button>
+            )}
+          </div>
+        </div>
+
+        <pre className="overflow-x-auto px-3 py-2.5 scrollbar-thin">
+          <code className="whitespace-pre-wrap break-words font-mono text-[11.5px] leading-[1.7] text-slate-200">
+            {cmd}
+          </code>
+        </pre>
+
+        {open && (
+          <div className="border-t border-white/[0.06] bg-black/20">
+            {call.running && !result ? (
+              <span className="block px-3 py-2 text-[11px] text-slate-500 animate-pulse">Running…</span>
+            ) : (
+              <pre
+                className={`max-h-40 overflow-y-auto px-3 py-2.5 whitespace-pre-wrap break-words font-mono text-[10.5px] leading-[1.65] scrollbar-thin ${
+                  call.error ? 'text-red-400/70' : 'text-slate-400'
+                }`}
+              >
+                {result || '(no output)'}
+              </pre>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="rounded-lg overflow-hidden">
       <button
@@ -915,7 +981,7 @@ function ToolCallBlock({ call, sharedPath }: { call: ToolCall; sharedPath: strin
 }
 
 function ReasoningBlock({ thought, streaming }: { thought: string; streaming: boolean }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(true);
   return (
     <div className="rounded-lg border border-violet-500/15 overflow-hidden">
       <button
@@ -967,31 +1033,7 @@ function StreamingCursor() {
   );
 }
 
-// ── Message content renderer with copy-able code blocks ──────────────────────
-
-interface Segment {
-  type: 'text' | 'code';
-  content: string;
-  lang?: string;
-}
-
-function parseSegments(text: string): Segment[] {
-  const segments: Segment[] = [];
-  const fence = /```([^\n`]*)\n([\s\S]*?)```/g;
-  let last = 0;
-  let match: RegExpExecArray | null;
-  while ((match = fence.exec(text)) !== null) {
-    if (match.index > last) {
-      segments.push({ type: 'text', content: text.slice(last, match.index) });
-    }
-    segments.push({ type: 'code', lang: match[1].trim() || 'text', content: match[2] });
-    last = match.index + match[0].length;
-  }
-  if (last < text.length) {
-    segments.push({ type: 'text', content: text.slice(last) });
-  }
-  return segments.length ? segments : [{ type: 'text', content: text }];
-}
+// ── Message content renderer with proper markdown ─────────────────────────────
 
 function CodeBlock({ lang, content }: { lang: string; content: string }) {
   const [copied, setCopied] = useState(false);
@@ -1041,37 +1083,10 @@ function CodeBlock({ lang, content }: { lang: string; content: string }) {
 }
 
 function InlineCode({ children }: { children: string }) {
-  const [copied, setCopied] = useState(false);
   return (
-    <button
-      onClick={() => {
-        navigator.clipboard.writeText(children).then(() => {
-          setCopied(true);
-          setTimeout(() => setCopied(false), 1200);
-        });
-      }}
-      title="Click to copy"
-      className={`rounded px-1 py-0.5 font-mono text-[11.5px] transition ${
-        copied ? 'bg-emerald-500/15 text-emerald-300' : 'bg-white/8 text-slate-200 hover:bg-white/12'
-      }`}
-    >
-      {copied ? '✓' : children}
-    </button>
-  );
-}
-
-/** Render text with inline backtick code highlighted. */
-function TextSegment({ content }: { content: string }) {
-  const parts = content.split(/(`[^`\n]+`)/g);
-  return (
-    <span className="whitespace-pre-wrap break-words text-[13px] leading-[1.65]">
-      {parts.map((part, i) => {
-        if (part.startsWith('`') && part.endsWith('`') && part.length > 2) {
-          return <InlineCode key={i}>{part.slice(1, -1)}</InlineCode>;
-        }
-        return <span key={i}>{part}</span>;
-      })}
-    </span>
+    <code className="rounded-md border border-white/8 bg-white/[0.06] px-1.5 py-0.5 font-mono text-[11.5px] text-slate-100">
+      {children}
+    </code>
   );
 }
 
@@ -1095,22 +1110,106 @@ function CoalfireAvatar() {
   );
 }
 
+function flattenMarkdownText(node: ReactNode): string {
+  if (typeof node === 'string' || typeof node === 'number') return String(node);
+  if (Array.isArray(node)) return node.map(flattenMarkdownText).join('');
+  if (!node) return '';
+  return '';
+}
+
+const markdownComponents: Components = {
+  pre: ({ children }) => <>{children}</>,
+  code: ({ children, className }) => {
+    const content = flattenMarkdownText(children).replace(/\n$/, '');
+    const lang = /language-(\S+)/.exec(className ?? '')?.[1] ?? 'text';
+    const isBlock = Boolean(className) || content.includes('\n');
+    return isBlock ? <CodeBlock lang={lang} content={content} /> : <InlineCode>{content}</InlineCode>;
+  },
+  h1: ({ children }) => (
+    <h1 className="mb-3 mt-1 text-[23px] font-semibold tracking-[-0.02em] text-white">
+      {children}
+    </h1>
+  ),
+  h2: ({ children }) => (
+    <h2 className="mb-2.5 mt-5 border-b border-white/8 pb-1 text-[18px] font-semibold tracking-[-0.01em] text-white/95 first:mt-1">
+      {children}
+    </h2>
+  ),
+  h3: ({ children }) => (
+    <h3 className="mb-2 mt-4 text-[15px] font-semibold uppercase tracking-[0.08em] text-slate-200/95">
+      {children}
+    </h3>
+  ),
+  h4: ({ children }) => (
+    <h4 className="mb-1.5 mt-4 text-[13px] font-semibold text-slate-100">
+      {children}
+    </h4>
+  ),
+  p: ({ children }) => (
+    <p className="mb-3 whitespace-pre-wrap break-words text-[13px] leading-[1.75] text-slate-200/95 last:mb-0">
+      {children}
+    </p>
+  ),
+  ul: ({ children }) => (
+    <ul className="mb-3 list-disc space-y-1.5 pl-5 text-[13px] leading-[1.7] text-slate-200/95 last:mb-0">
+      {children}
+    </ul>
+  ),
+  ol: ({ children }) => (
+    <ol className="mb-3 list-decimal space-y-1.5 pl-5 text-[13px] leading-[1.7] text-slate-200/95 last:mb-0">
+      {children}
+    </ol>
+  ),
+  li: ({ children }) => <li className="pl-1">{children}</li>,
+  blockquote: ({ children }) => (
+    <blockquote className="mb-3 rounded-r-xl border-l-2 border-[rgba(255,109,43,0.45)] bg-[rgba(255,255,255,0.03)] px-4 py-2 text-slate-300/90 italic last:mb-0">
+      {children}
+    </blockquote>
+  ),
+  a: ({ children, href }) => (
+    <a
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      className="text-[rgba(255,109,43,0.95)] underline decoration-[rgba(255,109,43,0.45)] underline-offset-4 transition hover:text-[rgba(255,139,88,1)]"
+    >
+      {children}
+    </a>
+  ),
+  hr: () => <hr className="my-4 border-0 border-t border-white/8" />,
+  strong: ({ children }) => <strong className="font-semibold text-white">{children}</strong>,
+  em: ({ children }) => <em className="italic text-slate-100/95">{children}</em>,
+  table: ({ children }) => (
+    <div className="mb-4 overflow-x-auto rounded-xl border border-white/8 bg-black/10 last:mb-0">
+      <table className="min-w-full border-collapse text-left text-[12px] text-slate-200/95">
+        {children}
+      </table>
+    </div>
+  ),
+  thead: ({ children }) => <thead className="bg-white/[0.04]">{children}</thead>,
+  th: ({ children }) => (
+    <th className="border-b border-white/8 px-3 py-2 font-semibold tracking-[0.04em] text-slate-100">
+      {children}
+    </th>
+  ),
+  td: ({ children }) => (
+    <td className="border-t border-white/6 px-3 py-2 align-top text-slate-200/90">
+      {children}
+    </td>
+  ),
+};
+
 function MessageContent({ text, streaming }: { text: string; streaming?: boolean }) {
   // No text yet — show typing indicator instead of empty bubble + cursor
   if (streaming && !text.trim()) {
     return <TypingIndicator />;
   }
 
-  const segments = parseSegments(text);
   return (
-    <div>
-      {segments.map((seg, i) =>
-        seg.type === 'code' ? (
-          <CodeBlock key={i} lang={seg.lang!} content={seg.content} />
-        ) : (
-          <TextSegment key={i} content={seg.content} />
-        )
-      )}
+    <div className="max-w-none text-slate-200">
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+        {text}
+      </ReactMarkdown>
       {streaming && <StreamingCursor />}
     </div>
   );
