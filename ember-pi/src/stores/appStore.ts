@@ -165,6 +165,7 @@ interface EphemeralState {
 
   thoughtLines: OutputLine[];
   addThoughtLine: (line: OutputLine) => void;
+  upsertThoughtLine: (line: OutputLine) => void;
   clearThoughts: () => void;
 
   sessionLog: SessionEvent[];
@@ -223,6 +224,17 @@ export const useEphemeralStore = create<EphemeralState>((set) => ({
   thoughtLines: [],
   addThoughtLine: (line) =>
     set((s) => ({ thoughtLines: [...s.thoughtLines.slice(-200), line] })),
+  upsertThoughtLine: (line) =>
+    set((s) => {
+      const idx = s.thoughtLines.findIndex((existing) => existing.id === line.id);
+      if (idx === -1) {
+        return { thoughtLines: [...s.thoughtLines.slice(-200), line] };
+      }
+
+      const thoughtLines = [...s.thoughtLines];
+      thoughtLines[idx] = line;
+      return { thoughtLines };
+    }),
   clearThoughts: () => set({ thoughtLines: [] }),
 
   sessionLog: [],

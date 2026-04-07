@@ -43,7 +43,7 @@ const TOOLS_COMMON = [
   {
     name: 'read_file',
     description:
-      'Read a text file from the shared workspace using its host path. Use this to inspect files dropped by the user.',
+      'Read a text file from the shared workspace using its host path. Use a path returned by list_files, not the container path /workspace/...',
     parameters: {
       type: 'object' as const,
       properties: {
@@ -55,11 +55,11 @@ const TOOLS_COMMON = [
   {
     name: 'write_file',
     description:
-      'Write a text file to the shared workspace. Use this to save reports, scripts, or notes.',
+      'Write a text file to the shared workspace using a host-side path. Use a directory returned by list_files, not the container path /workspace/...',
     parameters: {
       type: 'object' as const,
       properties: {
-        path: { type: 'string', description: 'Absolute host-side path to write (e.g. /workspace/report.md)' },
+        path: { type: 'string', description: 'Absolute host-side path to write (for example, a path built from a directory returned by list_files)' },
         content: { type: 'string', description: 'Text content to write' },
       },
       required: ['path', 'content'],
@@ -71,7 +71,7 @@ const TOOLS_COMMON = [
     parameters: {
       type: 'object' as const,
       properties: {
-        path: { type: 'string', description: 'Host-side directory path (default: workspace root)' },
+        path: { type: 'string', description: 'Host-side directory path inside the shared workspace (default: workspace root)' },
       },
       required: [],
     },

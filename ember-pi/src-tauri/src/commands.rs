@@ -587,6 +587,8 @@ pub async fn pi_start(
         docker_args.push("-e".into());
         docker_args.push(format!("{k}={v}"));
     }
+    docker_args.push("-w".into());
+    docker_args.push("/workspace".into());
     docker_args.push("-i".into());
     docker_args.push(container_name);
     docker_args.push("pi".into());

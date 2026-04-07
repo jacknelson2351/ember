@@ -40,7 +40,7 @@ export function ThoughtsPanel() {
             <div className="text-center space-y-1">
               <p className="text-[#2a2a2a] text-sm italic">No reasoning trace yet.</p>
               <p className="text-[10px] text-[#1e1e1e]">
-                Thoughts appear when the agent prefixes output with [THOUGHT]
+                Thoughts appear here while Pi emits thinking events.
               </p>
             </div>
           </div>

@@ -12,13 +12,16 @@ import {
   onPiStderr,
   type PiEvent,
 } from '../services/pi';
-import type { ToolCall } from '../types';
+import type { OutputLine, ToolCall } from '../types';
 
 const QUICK_PROMPTS = [
-  'List the files in /workspace.',
+  'List the files in the current workspace.',
   'What tools are available in this environment?',
   'Run a quick system info check.',
 ];
+
+const WORKSPACE_GUIDANCE =
+  'The current working directory is the shared workspace root inside the container. Prefer relative file paths for read, write, edit, and bash operations when you are working in the workspace. Use /workspace only when you need to refer to the absolute in-container mount path.';
 
 export function ChatPanel() {
   const {
@@ -37,6 +40,7 @@ export function ChatPanel() {
     containerStatus,
     containerName,
     addSessionEvent,
+    upsertThoughtLine,
     runtimeHealth,
   } = useAppStore();
 
@@ -119,13 +123,14 @@ export function ChatPanel() {
 
   /** Build effective system prompt — base + memory-injected notes */
   const buildSystemPrompt = useCallback((): string => {
-    if (memoryMode === 'off') return systemPrompt;
+    const basePrompt = `${systemPrompt}\n\n${WORKSPACE_GUIDANCE}`;
+    if (memoryMode === 'off') return basePrompt;
     const pinned = notes.filter((n) => n.pinned);
     const selected = memoryMode === 'full' ? notes : pinned;
-    if (selected.length === 0) return systemPrompt;
+    if (selected.length === 0) return basePrompt;
     const block = selected.map((n) => `- ${n.content}`).join('\n');
     const label = memoryMode === 'full' ? 'MEMORY NOTES' : 'PINNED NOTES';
-    return `${systemPrompt}\n\n--- [${label}] ---\n${block}\n--- [END] ---`;
+    return `${basePrompt}\n\n--- [${label}] ---\n${block}\n--- [END] ---`;
   }, [memoryMode, notes, systemPrompt]);
 
   // Must be declared after buildSystemPrompt
@@ -138,6 +143,8 @@ export function ChatPanel() {
   const accTools = useRef<ToolCall[]>([]);
   const activeToolId = useRef<string | null>(null); // tool being streamed
   const execOutputs = useRef<Record<string, string>>({}); // toolcallId → output
+  const activeThoughtId = useRef<string | null>(null);
+  const activeThoughtTimestamp = useRef<number | null>(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -238,7 +245,27 @@ export function ChatPanel() {
       accThought.current = '';
       accTools.current = [];
       activeToolId.current = null;
+      activeThoughtId.current = null;
+      activeThoughtTimestamp.current = null;
       execOutputs.current = {};
+    };
+
+    const syncThoughtLine = () => {
+      const content = accThought.current.trim();
+      if (!content) return;
+
+      const id = activeThoughtId.current ?? crypto.randomUUID();
+      const timestamp = activeThoughtTimestamp.current ?? Date.now();
+      activeThoughtId.current = id;
+      activeThoughtTimestamp.current = timestamp;
+
+      const line: OutputLine = {
+        id,
+        type: 'thought',
+        content,
+        timestamp,
+      };
+      upsertThoughtLine(line);
     };
 
     const unlistenEvent = onPiEvent((ev: PiEvent) => {
@@ -268,17 +295,22 @@ export function ChatPanel() {
           if (d.type === 'text_delta' && d.delta) {
             accText.current += d.delta;
             updateLastMessage({
-              content: accText.current,
+              content: accThought.current
+                ? `[THOUGHT]${accThought.current}\n\n${accText.current}`
+                : accText.current,
               streaming: true,
               toolCalls: [...accTools.current],
             });
           } else if (d.type === 'thinking_delta' && d.delta) {
             accThought.current += d.delta;
+            syncThoughtLine();
             updateLastMessage({
               content: `[THOUGHT]${accThought.current}\n\n${accText.current}`,
               streaming: true,
               toolCalls: [...accTools.current],
             });
+          } else if (d.type === 'thinking_end') {
+            syncThoughtLine();
           } else if (d.type === 'toolcall_end' && d.toolCall) {
             // Full tool call info available at toolcall_end
             const tc: ToolCall = {
@@ -292,6 +324,7 @@ export function ChatPanel() {
             updateLastMessage({ toolCalls: [...accTools.current] });
           } else if (d.type === 'done') {
             // Turn complete — finalize
+            syncThoughtLine();
             const finalContent = accThought.current
               ? `[THOUGHT]${accThought.current}\n\n${accText.current}`
               : accText.current;
@@ -402,18 +435,21 @@ export function ChatPanel() {
       unlistenEnded.then((fn) => fn());
       unlistenStderr.then((fn) => fn());
     };
-  }, [addMessage, addSessionEvent, setAgentStatus, setPiStatus, updateLastMessage]);
+  }, [addMessage, addSessionEvent, setAgentStatus, setPiStatus, updateLastMessage, upsertThoughtLine]);
 
   // ── Send ───────────────────────────────────────────────────────────────────
 
   const handleAttach = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);
     if (!files.length) return;
+    const sharedPath = runtimeHealth?.sharedPath?.replace(/\/$/, '') ?? '';
+    if (!sharedPath) return;
     useEphemeralStore.getState().setSuppressBlurCollapse(false);
     for (const file of files) {
+      const hostPath = `${sharedPath}/${file.name}`;
       const destPath = `/workspace/${file.name}`;
       try {
-        await writeFileBytes(destPath, file);
+        await writeFileBytes(hostPath, file);
         setAttachments((prev) => [...prev, { name: file.name, path: destPath }]);
       } catch (err) {
         console.error('Attachment upload failed:', err);
@@ -438,7 +474,7 @@ export function ChatPanel() {
 
     const currentAttachments = [...attachments];
     const attachmentNote = currentAttachments.length > 0
-      ? `Files uploaded to /workspace: ${currentAttachments.map((a) => a.name).join(', ')}\n\n`
+      ? `Files uploaded to the current working directory: ${currentAttachments.map((a) => a.name).join(', ')}\nUse relative paths when reading or editing them.\n\n`
       : '';
     const promptText = attachmentNote + text;
 

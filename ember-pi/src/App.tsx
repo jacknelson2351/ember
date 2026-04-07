@@ -6,6 +6,7 @@ import { useAppStore, useEphemeralStore } from './stores/appStore';
 import { ChatPanel } from './components/ChatPanel';
 import { FilesPanel } from './components/FilesPanel';
 import { MemoryPanel } from './components/MemoryPanel';
+import { ThoughtsPanel } from './components/ThoughtsPanel';
 import { SettingsPanel } from './components/SettingsPanel';
 import { CoalfireBrand } from './components/CoalfireBrand';
 import { getRuntimeHealth } from './services/container';
@@ -18,13 +19,15 @@ const COLLAPSED_WINDOW_HEIGHT = PILL_HEIGHT;
 
 const PANEL_KEYS: Record<string, Panel> = {
   '1': 'chat',
-  '2': 'files',
-  '3': 'memory',
-  '4': 'settings',
+  '3': 'thoughts',
+  '4': 'files',
+  '5': 'memory',
+  '6': 'settings',
 };
 
 const PANEL_ITEMS: { id: Panel; title: string; icon: React.ReactNode }[] = [
   { id: 'chat', title: 'Chat', icon: <ChatIcon /> },
+  { id: 'thoughts', title: 'Thoughts', icon: <ThoughtsIcon /> },
   { id: 'files', title: 'Files', icon: <FilesIcon /> },
   { id: 'memory', title: 'Memory', icon: <MemoryIcon /> },
   { id: 'settings', title: 'Settings', icon: <SettingsIcon /> },
@@ -232,6 +235,7 @@ export default function App() {
           <main className="mt-3 flex min-h-0 w-full flex-1 overflow-hidden rounded-[28px] border border-white/10 bg-[rgba(10,15,25,0.94)] shadow-[0_28px_80px_rgba(0,0,0,0.5)] backdrop-blur-xl">
             <div className="h-full min-h-0 w-full">
               {activePanel === 'chat' && <ChatPanel />}
+              {activePanel === 'thoughts' && <ThoughtsPanel />}
               {activePanel === 'files' && <FilesPanel />}
               {activePanel === 'memory' && <MemoryPanel />}
               {activePanel === 'settings' && <SettingsPanel />}
@@ -298,6 +302,16 @@ function FilesIcon() {
   return (
     <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
       <path d="M2 3.5a1 1 0 01.75-.75H4.5l1 1H13a1 1 0 011 1v5.5a1 1 0 01-1 1H3a1 1 0 01-1-1V3.5z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function ThoughtsIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+      <circle cx="8" cy="7" r="4.5" stroke="currentColor" strokeWidth="1.3" />
+      <circle cx="5.5" cy="12.5" r="1" stroke="currentColor" strokeWidth="1.2" />
+      <circle cx="3.5" cy="14" r="0.75" stroke="currentColor" strokeWidth="1" />
     </svg>
   );
 }
