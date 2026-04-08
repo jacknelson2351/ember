@@ -123,6 +123,7 @@ const usePersistedStore = create<PersistedState>()(
         alwaysOnTop: false,
         monoFont: '"JetBrains Mono", "SF Mono", Monaco, monospace',
         launchExpanded: false,
+        collapseOnBlur: true,
         toolbarWidth: 780,
         panelHeight: 560,
       },

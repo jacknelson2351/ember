@@ -72,6 +72,7 @@ export interface AppearanceConfig {
   alwaysOnTop: boolean;
   monoFont: string;
   launchExpanded: boolean;
+  collapseOnBlur: boolean;
   toolbarWidth: number;
   panelHeight: number;
 }

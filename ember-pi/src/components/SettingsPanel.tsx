@@ -327,6 +327,12 @@ function BehaviorSection() {
           active={appearance.launchExpanded}
           onToggle={() => setAppearance({ launchExpanded: !appearance.launchExpanded })}
         />
+        <Toggle
+          label="Collapse on click away"
+          description="Panel closes when the window loses focus"
+          active={appearance.collapseOnBlur}
+          onToggle={() => setAppearance({ collapseOnBlur: !appearance.collapseOnBlur })}
+        />
       </div>
 
       <div>

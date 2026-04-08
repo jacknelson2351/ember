@@ -61,6 +61,8 @@ export default function App() {
   } = useAppStore();
 
   const [expanded, setExpanded] = useState(appearance.launchExpanded);
+  const appearanceRef = useRef(appearance);
+  appearanceRef.current = appearance;
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const runToolbarAction = useCallback((event: React.MouseEvent | React.KeyboardEvent, action: () => void) => {
@@ -146,7 +148,8 @@ export default function App() {
     let unlisten: (() => void) | null = null;
     getCurrentWindow().onFocusChanged(({ payload: focused }) => {
       if (!focused) {
-        if (!useEphemeralStore.getState().suppressBlurCollapse) {
+        const { suppressBlurCollapse } = useEphemeralStore.getState();
+        if (!suppressBlurCollapse && appearanceRef.current.collapseOnBlur) {
           setExpanded(false);
         }
       } else {
