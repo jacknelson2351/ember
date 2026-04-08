@@ -274,7 +274,28 @@ export function ChatPanel() {
   // ── Pi event handling ───────────────────────────────────────────────────────
 
   useEffect(() => {
+    let turnClosed = false;
+    let softFinalizeTimer: ReturnType<typeof setTimeout> | null = null;
+    let watchdogTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const clearSoftFinalizeTimer = () => {
+      if (softFinalizeTimer) {
+        clearTimeout(softFinalizeTimer);
+        softFinalizeTimer = null;
+      }
+    };
+
+    const clearWatchdogTimer = () => {
+      if (watchdogTimer) {
+        clearTimeout(watchdogTimer);
+        watchdogTimer = null;
+      }
+    };
+
     const resetAccum = () => {
+      turnClosed = false;
+      clearSoftFinalizeTimer();
+      clearWatchdogTimer();
       accText.current = '';
       accThought.current = '';
       accTools.current = [];
@@ -303,6 +324,8 @@ export function ChatPanel() {
       upsertThoughtLine(line);
     };
 
+    const hasRunningTools = () => accTools.current.some((tc) => tc.running);
+
     const buildAssistantMessageState = (streaming: boolean) => {
       const inline = parseContent(accText.current);
       const mergedThought = mergeThoughtContent(accThought.current, inline.thought);
@@ -313,6 +336,70 @@ export function ChatPanel() {
         streaming,
         toolCalls: [...accTools.current],
       };
+    };
+
+    const finalizeTurn = () => {
+      if (turnClosed) return;
+      turnClosed = true;
+      clearSoftFinalizeTimer();
+      clearWatchdogTimer();
+      thinkingActive.current = false;
+
+      const finalMessage = buildAssistantMessageState(false);
+      if (finalMessage.thought) syncThoughtLine(finalMessage.thought);
+      updateLastMessage(finalMessage);
+
+      const hasContent = Boolean(finalMessage.content.trim() || finalMessage.thought.trim());
+      if (hasContent) {
+        addSessionEvent({
+          id: crypto.randomUUID(),
+          type: 'agent',
+          content: finalMessage.content,
+          timestamp: Date.now(),
+        });
+        setHappyFlash(true);
+        setTimeout(() => setHappyFlash(false), 1800);
+      }
+
+      setStopRequested(false);
+      setAgentStatus('idle');
+      setPiStatus('ready');
+    };
+
+    const scheduleSoftFinalize = (delayMs = 700) => {
+      clearSoftFinalizeTimer();
+      softFinalizeTimer = setTimeout(() => {
+        const lastMsg = useEphemeralStore.getState().messages.slice(-1)[0];
+        if (
+          turnClosed ||
+          useEphemeralStore.getState().agentStatus !== 'running' ||
+          thinkingActive.current ||
+          hasRunningTools() ||
+          lastMsg?.role !== 'agent' ||
+          !lastMsg.streaming
+        ) {
+          return;
+        }
+        finalizeTurn();
+      }, delayMs);
+    };
+
+    const bumpCompletionWatchdog = (delayMs = 5000) => {
+      clearWatchdogTimer();
+      watchdogTimer = setTimeout(() => {
+        const lastMsg = useEphemeralStore.getState().messages.slice(-1)[0];
+        if (
+          turnClosed ||
+          useEphemeralStore.getState().agentStatus !== 'running' ||
+          thinkingActive.current ||
+          hasRunningTools() ||
+          lastMsg?.role !== 'agent' ||
+          !lastMsg.streaming
+        ) {
+          return;
+        }
+        finalizeTurn();
+      }, delayMs);
     };
 
     let unlistenEventFn: (() => void) | undefined;
@@ -348,27 +435,44 @@ export function ChatPanel() {
           if (!d) break;
 
           if (d.type === 'thinking_start') {
+            clearSoftFinalizeTimer();
+            bumpCompletionWatchdog();
             thinkingActive.current = true;
             const nextMessage = buildAssistantMessageState(true);
             if (nextMessage.thought) syncThoughtLine(nextMessage.thought);
             updateLastMessage(nextMessage);
           } else if (d.type === 'text_delta' && d.delta) {
+            clearSoftFinalizeTimer();
+            bumpCompletionWatchdog();
             accText.current += d.delta;
             const nextMessage = buildAssistantMessageState(true);
             if (nextMessage.thought) syncThoughtLine(nextMessage.thought);
             updateLastMessage(nextMessage);
           } else if (d.type === 'thinking_delta' && d.delta) {
+            clearSoftFinalizeTimer();
+            bumpCompletionWatchdog();
             thinkingActive.current = true;
             accThought.current += d.delta;
             const nextMessage = buildAssistantMessageState(true);
             if (nextMessage.thought) syncThoughtLine(nextMessage.thought);
             updateLastMessage(nextMessage);
           } else if (d.type === 'thinking_end') {
+            bumpCompletionWatchdog();
             thinkingActive.current = false;
             const nextMessage = buildAssistantMessageState(true);
             if (nextMessage.thought) syncThoughtLine(nextMessage.thought);
             updateLastMessage(nextMessage);
+          } else if (d.type === 'text_start') {
+            clearSoftFinalizeTimer();
+            bumpCompletionWatchdog();
+          } else if (d.type === 'text_end') {
+            const nextMessage = buildAssistantMessageState(true);
+            if (nextMessage.thought) syncThoughtLine(nextMessage.thought);
+            updateLastMessage(nextMessage);
+            scheduleSoftFinalize();
           } else if (d.type === 'toolcall_end' && d.toolCall) {
+            clearSoftFinalizeTimer();
+            bumpCompletionWatchdog();
             // Full tool call info available at toolcall_end
             const tc: ToolCall = {
               id: d.toolCall.id,
@@ -380,25 +484,14 @@ export function ChatPanel() {
             activeToolId.current = d.toolCall.id;
             updateLastMessage({ toolCalls: [...accTools.current] });
           } else if (d.type === 'done') {
-            // Turn complete — finalize
-            thinkingActive.current = false;
-            const finalMessage = buildAssistantMessageState(false);
-            if (finalMessage.thought) syncThoughtLine(finalMessage.thought);
-            updateLastMessage(finalMessage);
-            addSessionEvent({
-              id: crypto.randomUUID(),
-              type: 'agent',
-              content: finalMessage.content,
-              timestamp: Date.now(),
-            });
-            setStopRequested(false);
-            setAgentStatus('idle');
-            setPiStatus('ready');
+            finalizeTurn();
           }
           break;
         }
 
         case 'tool_execution_start': {
+          clearSoftFinalizeTimer();
+          bumpCompletionWatchdog();
           // Pi confirmed the tool is executing — update or create the tool call entry
           const id = ev.toolCallId ?? activeToolId.current ?? '';
           const existing = accTools.current.find((tc) => tc.id === id);
@@ -421,6 +514,8 @@ export function ChatPanel() {
         }
 
         case 'tool_execution_update': {
+          clearSoftFinalizeTimer();
+          bumpCompletionWatchdog();
           const id = ev.toolCallId ?? '';
           if (id) {
             const chunk = typeof ev.partialResult === 'string'
@@ -436,6 +531,7 @@ export function ChatPanel() {
         }
 
         case 'tool_execution_end': {
+          bumpCompletionWatchdog();
           const id = ev.toolCallId ?? '';
           const finalResult = typeof ev.result === 'string'
             ? ev.result
@@ -451,21 +547,12 @@ export function ChatPanel() {
               : tc,
           );
           updateLastMessage({ toolCalls: [...accTools.current] });
+          scheduleSoftFinalize(900);
           break;
         }
 
         case 'agent_end': {
-          // Ensure streaming is cleared and status is idle even if 'done' was missed
-          updateLastMessage({ streaming: false, thoughtStreaming: false });
-          setStopRequested(false);
-          setAgentStatus('idle');
-          setPiStatus('ready');
-          // Happy flash for 1.8s if the agent actually produced content
-          const lastMsg = useEphemeralStore.getState().messages.slice(-1)[0];
-          if (lastMsg?.role === 'agent' && (lastMsg.content.trim() || lastMsg.thought?.trim())) {
-            setHappyFlash(true);
-            setTimeout(() => setHappyFlash(false), 1800);
-          }
+          finalizeTurn();
           break;
         }
 
@@ -499,6 +586,8 @@ export function ChatPanel() {
 
     return () => {
       active = false;
+      clearSoftFinalizeTimer();
+      clearWatchdogTimer();
       unlistenEventFn?.();
       unlistenEndedFn?.();
       unlistenStderrFn?.();
