@@ -132,12 +132,33 @@ const usePersistedStore = create<PersistedState>()(
     }),
     {
       name: 'ember-pi-persist',
+      version: 2,
+      migrate: (persistedState, fromVersion) => {
+        const s = (persistedState ?? {}) as Record<string, unknown>;
+        // v0→v1: collapseOnBlur didn't exist
+        if (fromVersion < 1) {
+          s.appearance = { ...(s.appearance as object ?? {}), collapseOnBlur: true };
+        }
+        // v1→v2: replace old hardcoded system prompts with the full editable default
+        if (fromVersion < 2) {
+          const OLD_PROMPTS = [
+            'Your name is Ember.',
+            'You are Ember, a security-focused AI assistant running inside a Kali Linux container with a full suite of security tooling available.',
+          ];
+          const current = (s.systemPrompt as string | undefined) ?? '';
+          if (OLD_PROMPTS.some((p) => current.startsWith(p))) {
+            delete s.systemPrompt; // let the code default take over
+          }
+        }
+        return s as unknown as PersistedState;
+      },
       merge: (persistedState, currentState) => {
         const persisted = persistedState as Partial<PersistedState> | undefined;
         return {
           ...currentState,
           ...persisted,
           modelConfig: sanitizeModelConfig(persisted?.modelConfig ?? currentState.modelConfig),
+          appearance: { ...currentState.appearance, ...(persisted?.appearance ?? {}) },
         };
       },
     }

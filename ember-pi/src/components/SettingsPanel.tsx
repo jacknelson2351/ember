@@ -218,27 +218,34 @@ function RuntimeSection() {
   } = useAppStore();
 
   const [logs, setLogs] = useState<string | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const doStart = async () => {
+    setErrorMsg(null);
     setContainerStatus('starting');
     try {
       const health = await startContainer(containerName);
       setRuntimeHealth(health);
       setContainerStatus(health.containerStatus);
     } catch (e) {
+      const msg = String(e);
       setContainerStatus('error');
-      addTerminalLine({ id: crypto.randomUUID(), type: 'error', content: String(e), timestamp: Date.now() });
+      setErrorMsg(msg);
+      addTerminalLine({ id: crypto.randomUUID(), type: 'error', content: msg, timestamp: Date.now() });
     }
   };
 
   const doStop = async () => {
+    setErrorMsg(null);
     setContainerStatus('stopping');
     try {
       await stopContainer(containerName);
       setContainerStatus('stopped');
     } catch (e) {
+      const msg = String(e);
       setContainerStatus('error');
-      addTerminalLine({ id: crypto.randomUUID(), type: 'error', content: String(e), timestamp: Date.now() });
+      setErrorMsg(msg);
+      addTerminalLine({ id: crypto.randomUUID(), type: 'error', content: msg, timestamp: Date.now() });
     }
   };
 
@@ -280,6 +287,13 @@ function RuntimeSection() {
         <Btn label="Stop" onClick={doStop} disabled={containerStatus === 'stopped' || containerStatus === 'stopping'} muted />
         <Btn label="View Logs" onClick={viewLogs} muted />
       </div>
+
+      {errorMsg && (
+        <div className="rounded-xl border border-red-500/20 bg-red-500/[0.06] px-3 py-2.5">
+          <p className="mb-1 text-[10px] uppercase tracking-widest text-red-400">Error</p>
+          <pre className="whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-red-300/80">{errorMsg}</pre>
+        </div>
+      )}
 
       {logs !== null && (
         <div>
