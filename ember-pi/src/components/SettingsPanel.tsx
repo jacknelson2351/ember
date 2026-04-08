@@ -5,13 +5,14 @@ import { startContainer, stopContainer, getContainerLogs } from '../services/con
 import { testConnection, discoverModels } from '../services/llm';
 import type { ModelConfig } from '../types';
 
-type Section = 'model' | 'agent' | 'runtime' | 'behavior';
+type Section = 'model' | 'agent' | 'runtime' | 'behavior' | 'session';
 
 const SECTIONS: { id: Section; label: string }[] = [
   { id: 'model',   label: 'AI Model' },
   { id: 'agent',   label: 'Agent Prompt' },
   { id: 'runtime', label: 'Runtime' },
   { id: 'behavior', label: 'Behavior' },
+  { id: 'session', label: 'Session' },
 ];
 
 export function SettingsPanel() {
@@ -41,6 +42,7 @@ export function SettingsPanel() {
         {section === 'agent'   && <AgentSection />}
         {section === 'runtime' && <RuntimeSection />}
         {section === 'behavior' && <BehaviorSection />}
+        {section === 'session'  && <SessionSection />}
       </div>
     </div>
   );
@@ -329,7 +331,7 @@ function RuntimeSection() {
 // ── Behavior ─────────────────────────────────────────────────────────────────
 
 function BehaviorSection() {
-  const { appearance, setAppearance, memoryMode, setMemoryMode } = useAppStore();
+  const { appearance, setAppearance } = useAppStore();
 
   const toggleAlwaysOnTop = async () => {
     const next = !appearance.alwaysOnTop;
@@ -357,28 +359,6 @@ function BehaviorSection() {
           active={appearance.launchExpanded}
           onToggle={() => setAppearance({ launchExpanded: !appearance.launchExpanded })}
         />
-      </div>
-
-      <div>
-        <Label>Memory injection</Label>
-        <div className="mt-2 grid grid-cols-2 gap-1.5">
-          {(['off', 'minimal', 'session', 'full'] as const).map((m) => (
-            <button
-              key={m}
-              onClick={() => setMemoryMode(m)}
-              className={`rounded-xl border px-3 py-2 text-[12px] capitalize transition ${
-                memoryMode === m
-                  ? 'border-[rgba(255,109,43,0.4)] bg-[rgba(255,109,43,0.1)] text-white'
-                  : 'border-white/8 text-slate-500 hover:text-slate-300'
-              }`}
-            >
-              {m}
-            </button>
-          ))}
-        </div>
-        <p className="mt-2 text-[10px] text-slate-700">
-          Minimal injects pinned notes only · Full injects all notes
-        </p>
       </div>
 
       <div>
@@ -477,5 +457,55 @@ function Toggle({
         }`} />
       </div>
     </button>
+  );
+}
+
+// ── Session log ───────────────────────────────────────────────────────────────
+
+function SessionSection() {
+  const { sessionLog, clearSessionLog } = useAppStore();
+
+  const typeColor: Record<string, string> = {
+    user:   'text-[#5f8fff]',
+    agent:  'text-[#4caf78]',
+    tool:   'text-[#f5a623]',
+    system: 'text-[#6b6b6b]',
+  };
+
+  return (
+    <div className="flex flex-col h-full px-4 py-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <Label>Session events</Label>
+        <button
+          onClick={clearSessionLog}
+          className="text-[11px] text-[#3a3a3a] hover:text-[#e05252] transition-colors"
+        >
+          clear
+        </button>
+      </div>
+      <p className="text-[10px] text-slate-700 -mt-1">
+        Live transcript of this session — cleared on reload. {sessionLog.length} event{sessionLog.length !== 1 ? 's' : ''}.
+      </p>
+      <div className="flex-1 overflow-y-auto space-y-1">
+        {sessionLog.length === 0 && (
+          <p className="text-[#2a2a2a] text-[12px] pt-1">No events yet.</p>
+        )}
+        {sessionLog.slice().reverse().map((e) => (
+          <div key={e.id} className="py-1.5 border-b border-[#0f0f0f] last:border-0">
+            <div className="flex items-center gap-2 mb-0.5">
+              <span className={`text-[10px] font-mono uppercase ${typeColor[e.type] ?? 'text-[#6b6b6b]'}`}>
+                {e.type}
+              </span>
+              <span className="text-[10px] text-[#2a2a2a]">
+                {new Date(e.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+              </span>
+            </div>
+            <p className="text-[11px] text-[#6b6b6b] leading-relaxed line-clamp-2 break-words">
+              {e.content}
+            </p>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }

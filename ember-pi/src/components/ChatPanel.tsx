@@ -15,17 +15,13 @@ import {
   type PiEvent,
 } from '../services/pi';
 import type { OutputLine, ToolCall } from '../types';
+import { buildEffectivePrompt } from '../utils/buildPrompt';
 
 const QUICK_PROMPTS = [
   'List the files in the current workspace.',
   'What tools are available in this environment?',
   'Run a quick system info check.',
 ];
-
-const WORKSPACE_GUIDANCE =
-  'The current working directory is the shared workspace root inside the container. You are allowed to create, edit, move, and overwrite files under /workspace. Prefer relative file paths for read, write, edit, and bash operations when you are working in the workspace. Anything you create that the user should be able to inspect must be saved under /workspace, and you should tell the user the path. Do not say you cannot ensure the user can see generated files if you can write them into /workspace. Use /workspace only when you need to refer to the absolute in-container mount path.';
-const IDENTITY_GUIDANCE =
-  'Your name is Ember. You are operating inside a dockerized Kali Linux environment with security tooling available. The shared workspace is mounted inside the container at /workspace.';
 
 export function ChatPanel() {
   const {
@@ -41,6 +37,7 @@ export function ChatPanel() {
     systemPrompt,
     memoryMode,
     notes,
+    skills,
     containerStatus,
     containerName,
     addSessionEvent,
@@ -64,7 +61,11 @@ export function ChatPanel() {
   const startVoice = useCallback(() => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const SR: any = (window as any).SpeechRecognition ?? (window as any).webkitSpeechRecognition;
-    if (!SR) return;
+    if (!SR) {
+      setVoiceInterim('Voice input unavailable — check microphone permissions');
+      setTimeout(() => setVoiceInterim(''), 3500);
+      return;
+    }
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const r: any = new SR();
@@ -127,17 +128,10 @@ export function ChatPanel() {
   const containerStatusRef = useRef(containerStatus);
   containerStatusRef.current = containerStatus;
 
-  /** Build effective system prompt — base + memory-injected notes */
+  /** Build effective system prompt — base + memory-injected notes + enabled skills */
   const buildSystemPrompt = useCallback((): string => {
-    const basePrompt = `${systemPrompt}\n\n${IDENTITY_GUIDANCE}\n\n${WORKSPACE_GUIDANCE}`;
-    if (memoryMode === 'off') return basePrompt;
-    const pinned = notes.filter((n) => n.pinned);
-    const selected = memoryMode === 'full' ? notes : pinned;
-    if (selected.length === 0) return basePrompt;
-    const block = selected.map((n) => `- ${n.content}`).join('\n');
-    const label = memoryMode === 'full' ? 'MEMORY NOTES' : 'PINNED NOTES';
-    return `${basePrompt}\n\n--- [${label}] ---\n${block}\n--- [END] ---`;
-  }, [memoryMode, notes, systemPrompt]);
+    return buildEffectivePrompt({ systemPrompt, memoryMode, notes, skills });
+  }, [memoryMode, notes, skills, systemPrompt]);
 
   // Must be declared after buildSystemPrompt
   const buildSystemPromptRef = useRef(buildSystemPrompt);
