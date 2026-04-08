@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 
 export type EmberMode =
   | 'idle'       // gentle sway, eyes wander/blink/wink
-  | 'thinking'   // pupils orbit, sparks above
+  | 'thinking'   // eyes look up and dart around, sparks above
   | 'streaming'  // eyes scan left-right (reading)
   | 'happy'      // arch eyes ^_^, flame pops
   | 'error'      // × eyes, flame shakes
@@ -81,17 +81,25 @@ IDLE[10] = { ldx:0, ldy:-1, rdx:0, rdy:-1 };
 
 const IDLE_DUR = [800,700,450,450,700,110,700,450,450,800,520,700,110,800,900,220,700,110,700,1000];
 
-// Thinking orbit (clockwise, includes diagonals for a more frantic scan)
-const ORBIT = [
-  { dx:0, dy:-1 },
-  { dx:1, dy:-1 },
-  { dx:1, dy:0 },
-  { dx:1, dy:1 },
-  { dx:0, dy:1 },
-  { dx:-1, dy:1 },
-  { dx:-1, dy:0 },
-  { dx:-1, dy:-1 },
+// Thinking keeps the eyes alive without spinning on every prompt.
+const THINK: EyeFrame[] = [
+  { ldx:0,  ldy:-1, rdx:0,  rdy:-1 },
+  { ldx:0,  ldy:-1, rdx:0,  rdy:-1 },
+  { ldx:-1, ldy:-1, rdx:0,  rdy:-1 },
+  { ldx:-1, ldy:-1, rdx:0,  rdy:-1 },
+  { ldx:0,  ldy:-1, rdx:1,  rdy:-1 },
+  { ldx:0,  ldy:-1, rdx:1,  rdy:-1 },
+  { ldx:0,  ldy:-1, rdx:0,  rdy:-1, lblink:true, rblink:true },
+  { ldx:1,  ldy:-1, rdx:1,  rdy:-1 },
+  { ldx:1,  ldy:-1, rdx:1,  rdy:-1 },
+  { ldx:0,  ldy:-1, rdx:0,  rdy:-1 },
+  { ldx:0,  ldy:-1, rdx:0,  rdy:-1, rblink:true },
+  { ldx:0,  ldy:-1, rdx:0,  rdy:-1 },
+  { ldx:0,  ldy:0,  rdx:0,  rdy:-1 },
+  { ldx:0,  ldy:-1, rdx:0,  rdy:-1 },
 ];
+
+const THINK_DUR = [420, 360, 220, 240, 220, 260, 120, 240, 280, 420, 110, 360, 220, 560];
 
 // Streaming scan (L L C R R C …)
 const SCAN = [-1, -1, 0, 1, 1, 0];
@@ -387,7 +395,7 @@ export function EmberBuddy({
   pixelScale?: number;
 }) {
   const [idleIdx,  setIdleIdx]  = useState(0);
-  const [orbitIdx, setOrbitIdx] = useState(0);
+  const [thinkIdx, setThinkIdx] = useState(0);
   const [scanIdx,  setScanIdx]  = useState(0);
   const [flareIdx, setFlareIdx] = useState(0);
 
@@ -408,29 +416,39 @@ export function EmberBuddy({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode]);
 
-  // Thinking orbit
+  // Thinking keeps a focused look with small darts and quick blinks.
   useEffect(() => {
     if (mode !== 'thinking') return;
-    const id = setInterval(() => setOrbitIdx(i => (i + 1) % ORBIT.length), 120);
-    return () => clearInterval(id);
+    let cancelled = false;
+    setThinkIdx(0);
+    const step = (i: number) => {
+      setTimeout(() => {
+        if (cancelled) return;
+        const next = (i + 1) % THINK.length;
+        setThinkIdx(next);
+        step(next);
+      }, THINK_DUR[i % THINK_DUR.length]);
+    };
+    step(0);
+    return () => { cancelled = true; };
   }, [mode]);
 
   // Streaming scan
   useEffect(() => {
     if (mode !== 'streaming') return;
-    const id = setInterval(() => setScanIdx(i => (i + 1) % SCAN.length), 280);
+    const id = setInterval(() => setScanIdx(i => (i + 1) % SCAN.length), 340);
     return () => clearInterval(id);
   }, [mode]);
 
   // Detached flame bits keep the silhouette lively even when the body is still.
   useEffect(() => {
     const interval =
-      mode === 'excited' ? 120 :
-      mode === 'thinking' ? 150 :
-      mode === 'streaming' ? 180 :
-      mode === 'happy' ? 170 :
-      mode === 'error' ? 220 :
-      260;
+      mode === 'excited' ? 150 :
+      mode === 'thinking' ? 210 :
+      mode === 'streaming' ? 240 :
+      mode === 'happy' ? 220 :
+      mode === 'error' ? 250 :
+      320;
     const id = setInterval(() => setFlareIdx(i => (i + 1) % FIRE_FLICKER_FRAMES.length), interval);
     return () => clearInterval(id);
   }, [mode]);
@@ -452,9 +470,9 @@ export function EmberBuddy({
       rightPx = excitedEye(ER.cx, ER.cy);
       break;
     case 'thinking': {
-      const o = ORBIT[orbitIdx];
-      leftPx  = roundEye(EL.cx, EL.cy, o.dx, o.dy);
-      rightPx = roundEye(ER.cx, ER.cy, o.dx, o.dy);
+      const f = THINK[thinkIdx % THINK.length];
+      leftPx  = f.lblink ? blinkEye(EL.cx, EL.cy) : roundEye(EL.cx, EL.cy, f.ldx, f.ldy);
+      rightPx = f.rblink ? blinkEye(ER.cx, ER.cy) : roundEye(ER.cx, ER.cy, f.rdx, f.rdy);
       break;
     }
     case 'streaming': {
@@ -472,18 +490,19 @@ export function EmberBuddy({
 
   // ── Flame animation per mode ─────────────────────────────────────────────
   const flameAnim =
-    mode === 'thinking'  ? 'flameThink 0.42s ease-in-out infinite'  :
-    mode === 'streaming' ? 'flameFlicker 0.28s ease-in-out infinite' :
-    mode === 'happy'     ? 'flameHappy 0.5s ease-out forwards'       :
-    mode === 'error'     ? 'flameError 0.12s linear infinite'        :
-    mode === 'excited'   ? 'flameFlicker 0.18s ease-in-out infinite' :
-                           'flameSway 2.8s ease-in-out infinite';
+    mode === 'thinking'  ? 'flameThink 0.72s ease-in-out infinite'   :
+    mode === 'streaming' ? 'flameFlicker 0.52s ease-in-out infinite' :
+    mode === 'happy'     ? 'flameHappy 0.82s ease-in-out infinite'   :
+    mode === 'error'     ? 'flameError 0.18s linear infinite'        :
+    mode === 'excited'   ? 'flameFlicker 0.3s ease-in-out infinite'  :
+                           'flameSway 3.6s ease-in-out infinite';
 
   // ── Thinking sparks above flame ──────────────────────────────────────────
+  const sparkPhase = thinkIdx % 4;
   const sparks = mode === 'thinking' ? (
     <>
-      <rect x={orbitIdx % 2 === 0 ? 4 : 6} y={-1} width={1} height={1} fill="#FFF0A0" opacity={0.9} />
-      <rect x={orbitIdx % 2 === 0 ? 7 : 3} y={-2} width={1} height={1} fill="#FFD166" opacity={0.65} />
+      <rect x={sparkPhase === 0 ? 4 : sparkPhase === 1 ? 5 : sparkPhase === 2 ? 6 : 5} y={-1} width={1} height={1} fill="#FFF0A0" opacity={0.86} />
+      <rect x={sparkPhase === 0 ? 7 : sparkPhase === 1 ? 8 : sparkPhase === 2 ? 5 : 3} y={-2} width={1} height={1} fill="#FFD166" opacity={0.62} />
     </>
   ) : null;
 
@@ -525,7 +544,7 @@ export function EmberBuddy({
       {mode === 'thinking' && (
         <g
           style={{
-            animation: 'heatGlow 0.45s ease-in-out infinite',
+            animation: 'heatGlow 0.9s ease-in-out infinite',
             transformBox: 'fill-box',
             transformOrigin: 'center center',
           }}
@@ -554,7 +573,7 @@ export function EmberBuddy({
         {mode === 'thinking' && (
           <g
             style={{
-              animation: 'flameCrown 0.26s steps(2, end) infinite',
+              animation: 'flameCrown 0.52s ease-in-out infinite',
               transformBox: 'fill-box',
               transformOrigin: 'center bottom',
             }}
@@ -614,7 +633,7 @@ export function EmberBuddy({
         {mode === 'streaming' && (
           <g
             style={{
-              animation: 'emberLift 0.55s linear infinite',
+              animation: 'emberLift 0.85s ease-out infinite',
               transformBox: 'fill-box',
               transformOrigin: 'center center',
             }}
@@ -635,7 +654,7 @@ export function EmberBuddy({
         {mode === 'thinking' && (
           <g
             style={{
-              animation: 'corePulse 0.4s ease-in-out infinite',
+              animation: 'corePulse 0.74s ease-in-out infinite',
               transformBox: 'fill-box',
               transformOrigin: 'center center',
             }}
@@ -656,7 +675,7 @@ export function EmberBuddy({
         {mode === 'excited' && (
           <g
             style={{
-              animation: 'emberBurst 0.32s ease-out infinite',
+              animation: 'emberBurst 0.46s ease-out infinite',
               transformBox: 'fill-box',
               transformOrigin: 'center center',
             }}
@@ -678,7 +697,7 @@ export function EmberBuddy({
           (
             <g
               style={{
-                animation: 'emberLift 0.7s linear infinite',
+                animation: 'emberLift 1.05s ease-out infinite',
                 transformBox: 'fill-box',
                 transformOrigin: 'center center',
               }}
