@@ -26,6 +26,8 @@ export interface ChatMessage {
   id: string;
   role: 'user' | 'agent';
   content: string;
+  thought?: string;
+  thoughtStreaming?: boolean;
   timestamp: number;
   streaming?: boolean;
   toolCalls?: ToolCall[];

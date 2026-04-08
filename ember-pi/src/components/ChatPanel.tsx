@@ -15,7 +15,7 @@ import {
   onPiStderr,
   type PiEvent,
 } from '../services/pi';
-import type { OutputLine, ToolCall } from '../types';
+import type { ChatMessage, OutputLine, ToolCall } from '../types';
 import { buildEffectivePrompt } from '../utils/buildPrompt';
 
 const QUICK_PROMPTS = [
@@ -147,6 +147,7 @@ export function ChatPanel() {
   const execOutputs = useRef<Record<string, string>>({}); // toolcallId → output
   const activeThoughtId = useRef<string | null>(null);
   const activeThoughtTimestamp = useRef<number | null>(null);
+  const thinkingActive = useRef(false);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -281,6 +282,7 @@ export function ChatPanel() {
       activeThoughtId.current = null;
       activeThoughtTimestamp.current = null;
       execOutputs.current = {};
+      thinkingActive.current = false;
     };
 
     const syncThoughtLine = (nextContent?: string | null) => {
@@ -319,6 +321,8 @@ export function ChatPanel() {
             id: crypto.randomUUID(),
             role: 'agent',
             content: '',
+            thought: '',
+            thoughtStreaming: false,
             timestamp: Date.now(),
             streaming: true,
             toolCalls: [],
@@ -331,28 +335,43 @@ export function ChatPanel() {
           const d = ev.assistantMessageEvent;
           if (!d) break;
 
-          if (d.type === 'text_delta' && d.delta) {
-            accText.current += d.delta;
-            const nextContent = accThought.current
-              ? `[THOUGHT]${accThought.current}\n\n${accText.current}`
-              : accText.current;
-            const parsed = parseContent(nextContent);
-            if (parsed.thought) syncThoughtLine(parsed.thought);
+          if (d.type === 'thinking_start') {
+            thinkingActive.current = true;
             updateLastMessage({
-              content: nextContent,
+              thought: accThought.current,
+              thoughtStreaming: true,
+              streaming: true,
+              toolCalls: [...accTools.current],
+            });
+          } else if (d.type === 'text_delta' && d.delta) {
+            accText.current += d.delta;
+            updateLastMessage({
+              content: accText.current,
+              thought: accThought.current,
+              thoughtStreaming: thinkingActive.current,
               streaming: true,
               toolCalls: [...accTools.current],
             });
           } else if (d.type === 'thinking_delta' && d.delta) {
+            thinkingActive.current = true;
             accThought.current += d.delta;
             syncThoughtLine();
             updateLastMessage({
-              content: `[THOUGHT]${accThought.current}\n\n${accText.current}`,
+              content: accText.current,
+              thought: accThought.current,
+              thoughtStreaming: true,
               streaming: true,
               toolCalls: [...accTools.current],
             });
           } else if (d.type === 'thinking_end') {
+            thinkingActive.current = false;
             syncThoughtLine();
+            updateLastMessage({
+              thought: accThought.current,
+              thoughtStreaming: false,
+              streaming: true,
+              toolCalls: [...accTools.current],
+            });
           } else if (d.type === 'toolcall_end' && d.toolCall) {
             // Full tool call info available at toolcall_end
             const tc: ToolCall = {
@@ -366,13 +385,12 @@ export function ChatPanel() {
             updateLastMessage({ toolCalls: [...accTools.current] });
           } else if (d.type === 'done') {
             // Turn complete — finalize
-            const finalContent = accThought.current
-              ? `[THOUGHT]${accThought.current}\n\n${accText.current}`
-              : accText.current;
-            const parsed = parseContent(finalContent);
-            if (parsed.thought) syncThoughtLine(parsed.thought);
+            thinkingActive.current = false;
+            if (accThought.current.trim()) syncThoughtLine(accThought.current);
             updateLastMessage({
-              content: finalContent,
+              content: accText.current,
+              thought: accThought.current,
+              thoughtStreaming: false,
               streaming: false,
               toolCalls: [...accTools.current],
             });
@@ -447,13 +465,13 @@ export function ChatPanel() {
 
         case 'agent_end': {
           // Ensure streaming is cleared and status is idle even if 'done' was missed
-          updateLastMessage({ streaming: false });
+          updateLastMessage({ streaming: false, thoughtStreaming: false });
           setStopRequested(false);
           setAgentStatus('idle');
           setPiStatus('ready');
           // Happy flash for 1.8s if the agent actually produced content
           const lastMsg = useEphemeralStore.getState().messages.slice(-1)[0];
-          if (lastMsg?.role === 'agent' && lastMsg.content.trim()) {
+          if (lastMsg?.role === 'agent' && (lastMsg.content.trim() || lastMsg.thought?.trim())) {
             setHappyFlash(true);
             setTimeout(() => setHappyFlash(false), 1800);
           }
@@ -571,7 +589,7 @@ export function ChatPanel() {
     if (agentStatus !== 'running' || stopRequested) return;
     restartAfterStopRef.current = true;
     setStopRequested(true);
-    updateLastMessage({ streaming: false });
+    updateLastMessage({ streaming: false, thoughtStreaming: false });
     try {
       await stopPiSession();
     } catch (e) {
@@ -699,8 +717,10 @@ export function ChatPanel() {
         ) : (
           <div className="space-y-5 px-5">
             {messages.map((message) => {
-              const { thought, response, hasThought } = parseContent(message.content);
+              const { thought, response, hasThought, thoughtStreaming } = getMessageParts(message);
               const isUser = message.role === 'user';
+              const isReasoningOnly =
+                message.streaming && !response.trim() && (thoughtStreaming || hasThought || !message.content.trim());
               return (
                 <div key={message.id} className={`flex gap-2.5 ${isUser ? 'flex-row-reverse' : 'flex-row'}`}>
                   {/* Avatar */}
@@ -712,10 +732,10 @@ export function ChatPanel() {
                     <div className="shrink-0" style={{ marginTop: -2 }}>
                       <EmberBuddy
                         mode={
-                          message.streaming && !message.content.trim() ? 'thinking'  :
-                          message.streaming                             ? 'streaming' :
-                          message.toolCalls?.some(tc => tc.running)    ? 'excited'   :
-                          message.toolCalls?.some(tc => tc.error)      ? 'error'     :
+                          isReasoningOnly ? 'thinking' :
+                          message.streaming ? 'streaming' :
+                          message.toolCalls?.some(tc => tc.running) ? 'excited' :
+                          message.toolCalls?.some(tc => tc.error) ? 'error' :
                           'idle'
                         }
                         pixelScale={2}
@@ -735,7 +755,7 @@ export function ChatPanel() {
 
                     {/* Reasoning */}
                     {hasThought && (
-                      <ReasoningBlock thought={thought ?? ''} streaming={Boolean(message.streaming && !response)} />
+                      <ReasoningBlock thought={thought ?? ''} streaming={thoughtStreaming} />
                     )}
 
                     {/* Message text */}
@@ -902,35 +922,67 @@ export function ChatPanel() {
 
 // ── Sub-components ─────────────────────────────────────────────────────────────
 
+function getMessageParts(message: ChatMessage): {
+  thought: string | null;
+  response: string;
+  hasThought: boolean;
+  thoughtStreaming: boolean;
+} {
+  if (message.role === 'agent' && (message.thought !== undefined || message.thoughtStreaming !== undefined)) {
+    const thought = message.thought?.trim() ?? '';
+    return {
+      thought: thought || null,
+      response: message.content,
+      hasThought: Boolean(thought),
+      thoughtStreaming: Boolean(message.thoughtStreaming),
+    };
+  }
+
+  const parsed = parseContent(message.content);
+  return {
+    ...parsed,
+    thoughtStreaming: Boolean(message.streaming && parsed.hasThought && !parsed.response.trim()),
+  };
+}
+
 function parseContent(content: string): { thought: string | null; response: string; hasThought: boolean } {
   const trimmed = content.trimStart();
   const thoughtPrefix = trimmed.match(/^\[THOUGHT\]:?\s*/i);
   if (thoughtPrefix) {
     const body = trimmed.slice(thoughtPrefix[0].length);
-    const end = /\n{2,}|\[(?:RESPONSE|FINAL)\]\s*/.exec(body);
-    if (end) {
+    const responseMarker = /\[(?:RESPONSE|FINAL)\]\s*/i.exec(body);
+    if (responseMarker?.index !== undefined) {
       return {
-        thought: body.slice(0, end.index).trim(),
-        response: body.slice(end.index + end[0].length).trim(),
+        thought: body.slice(0, responseMarker.index).trim(),
+        response: body.slice(responseMarker.index + responseMarker[0].length).trim(),
+        hasThought: true,
+      };
+    }
+    const blankLineIndex = body.search(/\n{2,}/);
+    if (blankLineIndex !== -1) {
+      const separator = body.slice(blankLineIndex).match(/^\n{2,}/)?.[0] ?? '\n\n';
+      return {
+        thought: body.slice(0, blankLineIndex).trim(),
+        response: body.slice(blankLineIndex + separator.length).trim(),
         hasThought: true,
       };
     }
     return { thought: body.trim(), response: '', hasThought: true };
   }
 
-  const thinkTag = trimmed.match(/^<think(?:ing)?>\s*([\s\S]*?)(?:<\/think(?:ing)?>\s*([\s\S]*))?$/i);
-  if (thinkTag) {
+  const thinkOpen = trimmed.match(/^<think(?:ing)?>\s*/i);
+  if (thinkOpen) {
+    const body = trimmed.slice(thinkOpen[0].length);
+    const closeMatch = body.match(/<\/think(?:ing)?>/i);
+    if (closeMatch?.index !== undefined) {
+      return {
+        thought: body.slice(0, closeMatch.index).trim() || null,
+        response: body.slice(closeMatch.index + closeMatch[0].length).trim(),
+        hasThought: true,
+      };
+    }
     return {
-      thought: thinkTag[1]?.trim() || null,
-      response: thinkTag[2]?.trim() || '',
-      hasThought: true,
-    };
-  }
-
-  const openThink = trimmed.match(/^<think(?:ing)?>\s*([\s\S]*)$/i);
-  if (openThink) {
-    return {
-      thought: openThink[1]?.trim() || '',
+      thought: body.trim(),
       response: '',
       hasThought: true,
     };
