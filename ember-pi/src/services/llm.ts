@@ -626,17 +626,6 @@ export async function testConnection(config: ModelConfig): Promise<{ ok: boolean
     });
     const latency = Date.now() - start;
     if (res.ok) {
-      const json = await res.json();
-      const modelIds = Array.isArray(json.data)
-        ? json.data.map((entry: { id?: string }) => entry.id).filter(Boolean)
-        : [];
-      if (config.model.trim() && modelIds.length > 0 && !modelIds.includes(config.model.trim())) {
-        return {
-          ok: false,
-          latency,
-          message: `Connected, but model "${config.model}" was not found. Use Discover Models and pick an exact ID.`,
-        };
-      }
       const providerName = config.provider === 'lmstudio' ? 'LM Studio' : config.provider;
       return { ok: true, latency, message: `${providerName} connected (${latency}ms)` };
     }

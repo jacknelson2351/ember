@@ -3,7 +3,8 @@ import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { revealItemInDir } from '@tauri-apps/plugin-opener';
 import { useAppStore, useEphemeralStore } from '../stores/appStore';
-import { writeFileBytes } from '../services/files';
+import { writeFileBytes, copyFile } from '../services/files';
+import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { EmberBuddy } from './EmberBuddy';
 import {
   startPiSession,
@@ -116,9 +117,10 @@ export function ChatPanel() {
   const [stopRequested, setStopRequested] = useState(false);
   const restartAfterStopRef = useRef(false);
 
-  // ── File attachments ─────────────────────────────────────────────────────────
+  // ── File attachments + drag-and-drop ─────────────────────────────────────────
   const [attachments, setAttachments] = useState<{ name: string; path: string }[]>([]);
   const attachInputRef = useRef<HTMLInputElement>(null);
+  const [dragging, setDragging] = useState(false);
 
   // ── Stable refs for startSession deps — prevents identity change from re-firing effects ──
   const containerNameRef = useRef(containerName);
@@ -236,6 +238,37 @@ export function ChatPanel() {
       recognitionRef.current?.stop();
     };
   }, []);
+
+  // ── Drag-and-drop files into chat ────────────────────────────────────────────
+  useEffect(() => {
+    const sharedPath = runtimeHealth?.sharedPath?.replace(/\/$/, '') ?? '';
+    let unlisten: (() => void) | null = null;
+
+    getCurrentWebview().onDragDropEvent(async (event) => {
+      const payload = event.payload;
+      if (payload.type === 'enter') {
+        setDragging(true);
+      } else if (payload.type === 'leave') {
+        setDragging(false);
+      } else if (payload.type === 'drop') {
+        setDragging(false);
+        if (!sharedPath || payload.paths.length === 0) return;
+        useEphemeralStore.getState().setSuppressBlurCollapse(false);
+        for (const srcPath of payload.paths) {
+          const fileName = srcPath.split('/').pop() ?? srcPath.split('\\').pop() ?? 'file';
+          const destPath = `/workspace/${fileName}`;
+          try {
+            await copyFile(srcPath, `${sharedPath}/${fileName}`);
+            setAttachments((prev) => [...prev, { name: fileName, path: destPath }]);
+          } catch (err) {
+            console.error('Drop upload failed:', err);
+          }
+        }
+      }
+    }).then((fn) => { unlisten = fn; });
+
+    return () => { unlisten?.(); };
+  }, [runtimeHealth?.sharedPath]);
 
   // ── Pi event handling ───────────────────────────────────────────────────────
 
@@ -568,7 +601,17 @@ export function ChatPanel() {
   const sharedPath = runtimeHealth?.sharedPath ?? '';
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="relative flex h-full min-h-0 flex-col">
+      {/* Drop overlay */}
+      {dragging && (
+        <div className="pointer-events-none absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 rounded-[inherit] border-2 border-dashed border-[#e85c2a]/50 bg-[rgba(232,92,42,0.06)]">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" className="text-[#e85c2a]/70">
+            <path d="M12 2v13M7 8l5-6 5 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+            <path d="M3 15v4a2 2 0 002 2h14a2 2 0 002-2v-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+          </svg>
+          <span className="text-[12px] text-[#e85c2a]/70">Drop to attach</span>
+        </div>
+      )}
       {/* Status bar */}
       <div className="flex items-center gap-2 border-b border-white/6 px-4 py-2">
         <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${
