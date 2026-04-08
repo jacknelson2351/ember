@@ -506,14 +506,15 @@ export function ChatPanel() {
 
     const currentAttachments = [...attachments];
     const attachmentNote = currentAttachments.length > 0
-      ? `Files uploaded to the current working directory: ${currentAttachments.map((a) => a.name).join(', ')}\nUse relative paths when reading or editing them.\n\n`
+      ? `[The user just uploaded the following file(s) to /workspace: ${currentAttachments.map((a) => a.name).join(', ')}. Read their contents before responding — use relative paths (e.g. "${currentAttachments[0].name}").]\n\n`
       : '';
-    const promptText = attachmentNote + text;
+    const userText = text || (currentAttachments.length > 0 ? 'Please read and summarize the uploaded file(s).' : '');
+    const promptText = attachmentNote + userText;
 
     addMessage({
       id: crypto.randomUUID(),
       role: 'user',
-      content: text,
+      content: userText,
       timestamp: Date.now(),
       attachments: currentAttachments.length > 0 ? currentAttachments : undefined,
     });
