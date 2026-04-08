@@ -5,7 +5,7 @@ import { revealItemInDir } from '@tauri-apps/plugin-opener';
 import { useAppStore, useEphemeralStore } from '../stores/appStore';
 import { writeFileBytes, copyFile } from '../services/files';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
-import { EmberBuddy, type EmberMode } from './EmberBuddy';
+import { EmberBuddy } from './EmberBuddy';
 import {
   startPiSession,
   stopPiSession,
@@ -608,21 +608,6 @@ export function ChatPanel() {
   const canStop = agentStatus === 'running' && !stopRequested;
   const isRunning = agentStatus === 'running';
   const sharedPath = runtimeHealth?.sharedPath ?? '';
-  const latestAgentMessage = getLatestAgentMessage(messages);
-  const buddyMode = getChatBuddyMode({
-    agentStatus,
-    happyFlash,
-    latestAgentMessage,
-    piStatus,
-  });
-  const buddyStatusText = getChatBuddyStatusText({
-    agentStatus,
-    buddyMode,
-    containerStatus,
-    messagesCount: messages.length,
-    piStatus,
-    stopRequested,
-  });
 
   return (
     <div className="relative flex h-full min-h-0 flex-col">
@@ -684,24 +669,20 @@ export function ChatPanel() {
         </details>
       )}
 
-      <div className="border-b border-white/6 px-4 py-3">
-        <div className="flex items-center gap-3 rounded-2xl border border-white/8 bg-white/[0.03] px-3 py-2.5">
-          <div className="shrink-0 rounded-xl border border-[#ff6d2b]/15 bg-[radial-gradient(circle_at_top,_rgba(255,140,66,0.14),_rgba(255,109,43,0.02)_60%,_transparent)] p-2 shadow-[0_12px_32px_rgba(0,0,0,0.2)]">
-            <EmberBuddy mode={buddyMode} pixelScale={3} />
-          </div>
-          <div className="min-w-0">
-            <p className="text-[12px] font-medium text-white/90">Ember</p>
-            <p className="text-[11px] leading-[1.5] text-slate-400">
-              {buddyStatusText}
-            </p>
-          </div>
-        </div>
-      </div>
-
       {/* Messages */}
       <div className="min-h-0 flex-1 overflow-y-auto py-4 scrollbar-thin">
         {messages.length === 0 ? (
-          <div className="flex flex-col items-center gap-4 px-5 pb-2 pt-8">
+          <div className="flex flex-col items-center px-5 pt-6 pb-2 gap-4">
+            <EmberBuddy
+              mode={
+                happyFlash ? 'happy' :
+                piStatus === 'error' ? 'error' :
+                piStatus === 'starting' ? 'thinking' :
+                agentStatus === 'running' ? 'thinking' :
+                'idle'
+              }
+              pixelScale={4}
+            />
             {containerStatus !== 'running' ? (
               <p className="text-[11px] text-amber-500/70 text-center">
                 Docker offline — start the runtime in Settings.
@@ -728,21 +709,30 @@ export function ChatPanel() {
             {messages.map((message) => {
               const { thought, response, hasThought, thoughtStreaming } = getMessageParts(message);
               const isUser = message.role === 'user';
+              const isReasoningOnly =
+                message.streaming && !response.trim() && (thoughtStreaming || hasThought || !message.content.trim());
               return (
                 <div key={message.id} className={`flex gap-2.5 ${isUser ? 'flex-row-reverse' : 'flex-row'}`}>
-                  {isUser && (
+                  {isUser ? (
                     <div className="mt-0.5 shrink-0">
                       <CoalfireAvatar />
+                    </div>
+                  ) : (
+                    <div className="shrink-0" style={{ marginTop: -2 }}>
+                      <EmberBuddy
+                        mode={
+                          isReasoningOnly ? 'thinking' :
+                          message.streaming ? 'streaming' :
+                          message.toolCalls?.some(tc => tc.running) ? 'excited' :
+                          message.toolCalls?.some(tc => tc.error) ? 'error' :
+                          'idle'
+                        }
+                        pixelScale={2}
+                      />
                     </div>
                   )}
 
                   <div className={`min-w-0 max-w-[88%] space-y-1.5 ${isUser ? 'items-end flex flex-col' : ''}`}>
-                    {!isUser && (
-                      <p className="text-[10px] font-medium uppercase tracking-[0.22em] text-[#ff8b55]/65">
-                        Ember
-                      </p>
-                    )}
-
                     {/* Tool calls — shown above the text */}
                     {!isUser && message.toolCalls && message.toolCalls.length > 0 && (
                       <div className="w-full space-y-1">
@@ -950,71 +940,6 @@ function mergeThoughtContent(...parts: Array<string | null | undefined>): string
     .filter(Boolean)
     .join('\n\n');
   return merged || null;
-}
-
-function getLatestAgentMessage(messages: ChatMessage[]): ChatMessage | null {
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    if (messages[index].role === 'agent') return messages[index];
-  }
-  return null;
-}
-
-function isReasoningOnlyMessage(message: ChatMessage): boolean {
-  const { hasThought, response, thoughtStreaming } = getMessageParts(message);
-  return Boolean(
-    message.streaming &&
-    !response.trim() &&
-    (thoughtStreaming || hasThought || !message.content.trim())
-  );
-}
-
-function getChatBuddyMode({
-  agentStatus,
-  happyFlash,
-  latestAgentMessage,
-  piStatus,
-}: {
-  agentStatus: 'idle' | 'running' | 'error';
-  happyFlash: boolean;
-  latestAgentMessage: ChatMessage | null;
-  piStatus: 'starting' | 'ready' | 'error' | 'offline';
-}): EmberMode {
-  if (happyFlash) return 'happy';
-  if (piStatus === 'error' || agentStatus === 'error') return 'error';
-  if (piStatus === 'starting') return 'thinking';
-
-  if (latestAgentMessage?.toolCalls?.some((toolCall) => toolCall.running)) return 'excited';
-  if (latestAgentMessage && isReasoningOnlyMessage(latestAgentMessage)) return 'thinking';
-  if (latestAgentMessage?.streaming) return 'streaming';
-  if (agentStatus === 'running') return 'thinking';
-
-  return 'idle';
-}
-
-function getChatBuddyStatusText({
-  agentStatus,
-  buddyMode,
-  containerStatus,
-  messagesCount,
-  piStatus,
-  stopRequested,
-}: {
-  agentStatus: 'idle' | 'running' | 'error';
-  buddyMode: EmberMode;
-  containerStatus: 'running' | 'stopped' | 'starting' | 'stopping' | 'error';
-  messagesCount: number;
-  piStatus: 'starting' | 'ready' | 'error' | 'offline';
-  stopRequested: boolean;
-}): string {
-  if (containerStatus !== 'running') return 'Docker offline. Start the runtime in Settings.';
-  if (stopRequested) return 'Stopping the current run…';
-  if (piStatus === 'error' || agentStatus === 'error') return 'Something went wrong. Reconnect or try again.';
-  if (piStatus === 'starting') return 'Starting Ember…';
-  if (buddyMode === 'excited') return 'Running tools in the workspace…';
-  if (buddyMode === 'thinking') return 'Thinking through the next step…';
-  if (buddyMode === 'streaming') return 'Writing a response…';
-  if (buddyMode === 'happy') return 'Turn complete.';
-  return messagesCount === 0 ? 'Ready for your first prompt.' : 'Ready for the next prompt.';
 }
 
 function parseContent(content: string): {

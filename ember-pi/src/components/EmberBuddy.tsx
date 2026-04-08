@@ -81,8 +81,17 @@ IDLE[10] = { ldx:0, ldy:-1, rdx:0, rdy:-1 };
 
 const IDLE_DUR = [800,700,450,450,700,110,700,450,450,800,520,700,110,800,900,220,700,110,700,1000];
 
-// Thinking orbit (clockwise)
-const ORBIT = [{ dx:0,dy:-1 },{ dx:1,dy:0 },{ dx:0,dy:1 },{ dx:-1,dy:0 }];
+// Thinking orbit (clockwise, includes diagonals for a more frantic scan)
+const ORBIT = [
+  { dx:0, dy:-1 },
+  { dx:1, dy:-1 },
+  { dx:1, dy:0 },
+  { dx:1, dy:1 },
+  { dx:0, dy:1 },
+  { dx:-1, dy:1 },
+  { dx:-1, dy:0 },
+  { dx:-1, dy:-1 },
+];
 
 // Streaming scan (L L C R R C …)
 const SCAN = [-1, -1, 0, 1, 1, 0];
@@ -151,6 +160,175 @@ const EMBER_FRAMES: PixelSpec[][] = [
   [
     { x: 4, y: -1, fill: '#FFD166', opacity: 0.42 },
     { x: 10, y: -1, fill: '#FFF0A0', opacity: 0.26 },
+  ],
+];
+
+const THINKING_HEAT_FRAMES: PixelSpec[][] = [
+  [
+    { x: 3, y: 1, fill: '#FF8C42', opacity: 0.14 },
+    { x: 8, y: 1, fill: '#FF8C42', opacity: 0.14 },
+    { x: 1, y: 4, fill: '#FF5B1B', opacity: 0.16 },
+    { x: 10, y: 4, fill: '#FF5B1B', opacity: 0.16 },
+    { x: 2, y: 9, fill: '#FF8C42', opacity: 0.1 },
+    { x: 9, y: 9, fill: '#FF8C42', opacity: 0.1 },
+  ],
+  [
+    { x: 2, y: 2, fill: '#FF8C42', opacity: 0.16 },
+    { x: 9, y: 2, fill: '#FF8C42', opacity: 0.16 },
+    { x: 0, y: 5, fill: '#FF5B1B', opacity: 0.14 },
+    { x: 11, y: 5, fill: '#FF5B1B', opacity: 0.14 },
+    { x: 3, y: 10, fill: '#FF8C42', opacity: 0.1 },
+    { x: 8, y: 10, fill: '#FF8C42', opacity: 0.1 },
+  ],
+  [
+    { x: 4, y: 1, fill: '#FFD166', opacity: 0.16 },
+    { x: 7, y: 1, fill: '#FFD166', opacity: 0.16 },
+    { x: 1, y: 6, fill: '#FF5B1B', opacity: 0.14 },
+    { x: 10, y: 6, fill: '#FF5B1B', opacity: 0.14 },
+    { x: 2, y: 11, fill: '#FF8C42', opacity: 0.08 },
+    { x: 9, y: 11, fill: '#FF8C42', opacity: 0.08 },
+  ],
+  [
+    { x: 3, y: 2, fill: '#FFD166', opacity: 0.14 },
+    { x: 8, y: 2, fill: '#FFD166', opacity: 0.14 },
+    { x: 0, y: 4, fill: '#FF5B1B', opacity: 0.12 },
+    { x: 11, y: 4, fill: '#FF5B1B', opacity: 0.12 },
+    { x: 4, y: 10, fill: '#FF8C42', opacity: 0.09 },
+    { x: 7, y: 10, fill: '#FF8C42', opacity: 0.09 },
+  ],
+];
+
+const THINKING_CORE_FRAMES: PixelSpec[][] = [
+  [
+    { x: 5, y: 1, fill: '#FFF0A0', opacity: 0.32 },
+    { x: 6, y: 1, fill: '#FFF0A0', opacity: 0.36 },
+    { x: 4, y: 3, fill: '#FFD166', opacity: 0.18 },
+    { x: 7, y: 3, fill: '#FFD166', opacity: 0.18 },
+    { x: 5, y: 4, fill: '#FFF0A0', opacity: 0.2 },
+    { x: 6, y: 4, fill: '#FFD166', opacity: 0.16 },
+  ],
+  [
+    { x: 4, y: 2, fill: '#FFD166', opacity: 0.22 },
+    { x: 5, y: 2, fill: '#FFF0A0', opacity: 0.3 },
+    { x: 6, y: 2, fill: '#FFF0A0', opacity: 0.3 },
+    { x: 7, y: 2, fill: '#FFD166', opacity: 0.22 },
+    { x: 5, y: 4, fill: '#FFD166', opacity: 0.18 },
+    { x: 6, y: 4, fill: '#FFD166', opacity: 0.18 },
+  ],
+  [
+    { x: 5, y: 0, fill: '#FFF0A0', opacity: 0.24 },
+    { x: 6, y: 0, fill: '#FFF0A0', opacity: 0.24 },
+    { x: 4, y: 2, fill: '#FFD166', opacity: 0.18 },
+    { x: 7, y: 2, fill: '#FFD166', opacity: 0.18 },
+    { x: 5, y: 3, fill: '#FFF0A0', opacity: 0.24 },
+    { x: 6, y: 3, fill: '#FFF0A0', opacity: 0.24 },
+  ],
+  [
+    { x: 4, y: 1, fill: '#FFD166', opacity: 0.2 },
+    { x: 7, y: 1, fill: '#FFD166', opacity: 0.2 },
+    { x: 5, y: 2, fill: '#FFF0A0', opacity: 0.28 },
+    { x: 6, y: 2, fill: '#FFF0A0', opacity: 0.28 },
+    { x: 5, y: 5, fill: '#FFD166', opacity: 0.16 },
+    { x: 6, y: 5, fill: '#FFD166', opacity: 0.16 },
+  ],
+];
+
+const THINKING_CROWN_FRAMES: PixelSpec[][] = [
+  [
+    { x: 4, y: 0, fill: '#FF8C42', opacity: 0.46 },
+    { x: 5, y: -1, fill: '#FFD166', opacity: 0.72 },
+    { x: 6, y: -2, fill: '#FFF0A0', opacity: 0.68 },
+    { x: 7, y: -1, fill: '#FFD166', opacity: 0.72 },
+    { x: 8, y: 0, fill: '#FF8C42', opacity: 0.46 },
+    { x: 2, y: 2, fill: '#FF5B1B', opacity: 0.42 },
+    { x: 9, y: 2, fill: '#FF5B1B', opacity: 0.42 },
+  ],
+  [
+    { x: 3, y: 1, fill: '#FF8C42', opacity: 0.42 },
+    { x: 5, y: -2, fill: '#FFD166', opacity: 0.66 },
+    { x: 6, y: -3, fill: '#FFF0A0', opacity: 0.62 },
+    { x: 7, y: -2, fill: '#FFD166', opacity: 0.66 },
+    { x: 9, y: 1, fill: '#FF8C42', opacity: 0.42 },
+    { x: 1, y: 4, fill: '#FF5B1B', opacity: 0.38 },
+    { x: 10, y: 3, fill: '#FFD166', opacity: 0.36 },
+  ],
+  [
+    { x: 4, y: -1, fill: '#FF8C42', opacity: 0.44 },
+    { x: 5, y: -2, fill: '#FFD166', opacity: 0.68 },
+    { x: 6, y: -1, fill: '#FFF0A0', opacity: 0.76 },
+    { x: 7, y: -2, fill: '#FFD166', opacity: 0.68 },
+    { x: 8, y: -1, fill: '#FF8C42', opacity: 0.44 },
+    { x: 2, y: 3, fill: '#FFD166', opacity: 0.34 },
+    { x: 9, y: 4, fill: '#FF5B1B', opacity: 0.38 },
+  ],
+  [
+    { x: 4, y: 1, fill: '#FF8C42', opacity: 0.4 },
+    { x: 5, y: -1, fill: '#FFD166', opacity: 0.62 },
+    { x: 6, y: -2, fill: '#FFF0A0', opacity: 0.72 },
+    { x: 7, y: -1, fill: '#FFD166', opacity: 0.62 },
+    { x: 8, y: 1, fill: '#FF8C42', opacity: 0.4 },
+    { x: 1, y: 3, fill: '#FF5B1B', opacity: 0.36 },
+    { x: 10, y: 4, fill: '#FF5B1B', opacity: 0.36 },
+  ],
+];
+
+const STREAMING_GLEAM_FRAMES: PixelSpec[][] = [
+  [
+    { x: 0, y: 6, fill: '#FFD166', opacity: 0.24 },
+    { x: 1, y: 7, fill: '#FFF0A0', opacity: 0.26 },
+    { x: 2, y: 8, fill: '#FFD166', opacity: 0.18 },
+  ],
+  [
+    { x: 1, y: 6, fill: '#FFD166', opacity: 0.22 },
+    { x: 2, y: 7, fill: '#FFF0A0', opacity: 0.24 },
+    { x: 3, y: 8, fill: '#FFD166', opacity: 0.18 },
+  ],
+  [
+    { x: 4, y: 6, fill: '#FFD166', opacity: 0.18 },
+    { x: 5, y: 7, fill: '#FFF0A0', opacity: 0.22 },
+    { x: 6, y: 8, fill: '#FFD166', opacity: 0.18 },
+  ],
+  [
+    { x: 7, y: 6, fill: '#FFD166', opacity: 0.18 },
+    { x: 8, y: 7, fill: '#FFF0A0', opacity: 0.22 },
+    { x: 9, y: 8, fill: '#FFD166', opacity: 0.18 },
+  ],
+  [
+    { x: 9, y: 6, fill: '#FFD166', opacity: 0.22 },
+    { x: 10, y: 7, fill: '#FFF0A0', opacity: 0.24 },
+    { x: 11, y: 8, fill: '#FFD166', opacity: 0.18 },
+  ],
+  [
+    { x: 8, y: 6, fill: '#FFD166', opacity: 0.2 },
+    { x: 9, y: 7, fill: '#FFF0A0', opacity: 0.22 },
+    { x: 10, y: 8, fill: '#FFD166', opacity: 0.18 },
+  ],
+];
+
+const EXCITED_BURST_FRAMES: PixelSpec[][] = [
+  [
+    { x: 1, y: 2, fill: '#FFD166', opacity: 0.4 },
+    { x: 10, y: 2, fill: '#FFD166', opacity: 0.4 },
+    { x: 0, y: 4, fill: '#FF8C42', opacity: 0.48 },
+    { x: 11, y: 4, fill: '#FF8C42', opacity: 0.48 },
+  ],
+  [
+    { x: 2, y: 1, fill: '#FFD166', opacity: 0.42 },
+    { x: 9, y: 1, fill: '#FFD166', opacity: 0.42 },
+    { x: 1, y: 5, fill: '#FF8C42', opacity: 0.44 },
+    { x: 10, y: 5, fill: '#FF8C42', opacity: 0.44 },
+  ],
+  [
+    { x: 0, y: 3, fill: '#FF8C42', opacity: 0.46 },
+    { x: 11, y: 3, fill: '#FF8C42', opacity: 0.46 },
+    { x: 3, y: 0, fill: '#FFD166', opacity: 0.36 },
+    { x: 8, y: 0, fill: '#FFD166', opacity: 0.36 },
+  ],
+  [
+    { x: 1, y: 3, fill: '#FF8C42', opacity: 0.42 },
+    { x: 10, y: 3, fill: '#FF8C42', opacity: 0.42 },
+    { x: 2, y: 0, fill: '#FFD166', opacity: 0.34 },
+    { x: 9, y: 0, fill: '#FFD166', opacity: 0.34 },
   ],
 ];
 
@@ -233,7 +411,7 @@ export function EmberBuddy({
   // Thinking orbit
   useEffect(() => {
     if (mode !== 'thinking') return;
-    const id = setInterval(() => setOrbitIdx(i => (i + 1) % 4), 190);
+    const id = setInterval(() => setOrbitIdx(i => (i + 1) % ORBIT.length), 120);
     return () => clearInterval(id);
   }, [mode]);
 
@@ -294,11 +472,11 @@ export function EmberBuddy({
 
   // ── Flame animation per mode ─────────────────────────────────────────────
   const flameAnim =
-    mode === 'thinking'  ? 'flameThink 0.65s ease-in-out infinite'  :
-    mode === 'streaming' ? 'flameFlicker 0.32s ease-in-out infinite' :
+    mode === 'thinking'  ? 'flameThink 0.42s ease-in-out infinite'  :
+    mode === 'streaming' ? 'flameFlicker 0.28s ease-in-out infinite' :
     mode === 'happy'     ? 'flameHappy 0.5s ease-out forwards'       :
     mode === 'error'     ? 'flameError 0.12s linear infinite'        :
-    mode === 'excited'   ? 'flameFlicker 0.22s ease-in-out infinite' :
+    mode === 'excited'   ? 'flameFlicker 0.18s ease-in-out infinite' :
                            'flameSway 2.8s ease-in-out infinite';
 
   // ── Thinking sparks above flame ──────────────────────────────────────────
@@ -321,9 +499,14 @@ export function EmberBuddy({
 
   const flameFlicker = FIRE_FLICKER_FRAMES[flareIdx % FIRE_FLICKER_FRAMES.length];
   const emberTrail = EMBER_FRAMES[flareIdx % EMBER_FRAMES.length];
+  const thinkingHeat = THINKING_HEAT_FRAMES[flareIdx % THINKING_HEAT_FRAMES.length];
+  const thinkingCore = THINKING_CORE_FRAMES[flareIdx % THINKING_CORE_FRAMES.length];
+  const thinkingCrown = THINKING_CROWN_FRAMES[flareIdx % THINKING_CROWN_FRAMES.length];
+  const streamingGleam = STREAMING_GLEAM_FRAMES[scanIdx % STREAMING_GLEAM_FRAMES.length];
+  const excitedBurst = EXCITED_BURST_FRAMES[flareIdx % EXCITED_BURST_FRAMES.length];
   const accentOpacity =
     mode === 'error' ? 0.55 :
-    mode === 'thinking' ? 0.9 :
+    mode === 'thinking' ? 1 :
     mode === 'excited' ? 1 :
     mode === 'happy' ? 0.95 :
     0.78;
@@ -337,7 +520,30 @@ export function EmberBuddy({
       width={W * pixelScale}
       height={H * pixelScale}
       style={{ imageRendering: 'pixelated', display: 'block', overflow: 'visible' }}
+      shapeRendering="crispEdges"
     >
+      {mode === 'thinking' && (
+        <g
+          style={{
+            animation: 'heatGlow 0.45s ease-in-out infinite',
+            transformBox: 'fill-box',
+            transformOrigin: 'center center',
+          }}
+        >
+          {thinkingHeat.map((p, i) => (
+            <rect
+              key={`h${i}`}
+              x={p.x}
+              y={p.y}
+              width={1}
+              height={1}
+              fill={p.fill}
+              opacity={p.opacity}
+            />
+          ))}
+        </g>
+      )}
+
       <g
         style={{
           transformBox: 'fill-box',
@@ -345,6 +551,28 @@ export function EmberBuddy({
           animation: flameAnim,
         }}
       >
+        {mode === 'thinking' && (
+          <g
+            style={{
+              animation: 'flameCrown 0.26s steps(2, end) infinite',
+              transformBox: 'fill-box',
+              transformOrigin: 'center bottom',
+            }}
+          >
+            {thinkingCrown.map((p, i) => (
+              <rect
+                key={`c${i}`}
+                x={p.x}
+                y={p.y}
+                width={1}
+                height={1}
+                fill={p.fill}
+                opacity={p.opacity}
+              />
+            ))}
+          </g>
+        )}
+
         {/* Detached side licks keep the ember from reading as one solid mass. */}
         {flameFlicker.map((p, i) => (
           <rect
@@ -383,18 +611,91 @@ export function EmberBuddy({
 
         {sparks}
         {happySparkles}
+        {mode === 'streaming' && (
+          <g
+            style={{
+              animation: 'emberLift 0.55s linear infinite',
+              transformBox: 'fill-box',
+              transformOrigin: 'center center',
+            }}
+          >
+            {streamingGleam.map((p, i) => (
+              <rect
+                key={`g${i}`}
+                x={p.x}
+                y={p.y}
+                width={1}
+                height={1}
+                fill={p.fill}
+                opacity={p.opacity}
+              />
+            ))}
+          </g>
+        )}
+        {mode === 'thinking' && (
+          <g
+            style={{
+              animation: 'corePulse 0.4s ease-in-out infinite',
+              transformBox: 'fill-box',
+              transformOrigin: 'center center',
+            }}
+          >
+            {thinkingCore.map((p, i) => (
+              <rect
+                key={`k${i}`}
+                x={p.x}
+                y={p.y}
+                width={1}
+                height={1}
+                fill={p.fill}
+                opacity={p.opacity}
+              />
+            ))}
+          </g>
+        )}
+        {mode === 'excited' && (
+          <g
+            style={{
+              animation: 'emberBurst 0.32s ease-out infinite',
+              transformBox: 'fill-box',
+              transformOrigin: 'center center',
+            }}
+          >
+            {excitedBurst.map((p, i) => (
+              <rect
+                key={`x${i}`}
+                x={p.x}
+                y={p.y}
+                width={1}
+                height={1}
+                fill={p.fill}
+                opacity={p.opacity}
+              />
+            ))}
+          </g>
+        )}
         {mode !== 'error' &&
-          emberTrail.map((p, i) => (
-            <rect
-              key={`r${i}`}
-              x={p.x}
-              y={p.y}
-              width={1}
-              height={1}
-              fill={p.fill}
-              opacity={p.opacity}
-            />
-          ))}
+          (
+            <g
+              style={{
+                animation: 'emberLift 0.7s linear infinite',
+                transformBox: 'fill-box',
+                transformOrigin: 'center center',
+              }}
+            >
+              {emberTrail.map((p, i) => (
+                <rect
+                  key={`r${i}`}
+                  x={p.x}
+                  y={p.y}
+                  width={1}
+                  height={1}
+                  fill={p.fill}
+                  opacity={p.opacity}
+                />
+              ))}
+            </g>
+          )}
       </g>
     </svg>
   );
