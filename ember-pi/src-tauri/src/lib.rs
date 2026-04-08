@@ -27,6 +27,20 @@ fn snap_to_top_center(window: &tauri::WebviewWindow) {
 pub fn run() {
     tauri::Builder::default()
         .manage(commands::PiState::new())
+        .manage(commands::ContainerState::new())
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::Destroyed = event {
+                let app = window.app_handle();
+                let state = app.state::<commands::ContainerState>();
+                let name = state.0.lock().ok()
+                    .and_then(|g| g.clone());
+                if let Some(name) = name {
+                    let _ = commands::docker_cmd()
+                        .args(["stop", &name])
+                        .output();
+                }
+            }
+        })
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             #[cfg(target_os = "macos")]

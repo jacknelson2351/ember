@@ -21,6 +21,16 @@ impl PiState {
     }
 }
 
+/// Tracks the name of the currently active Docker container so it can be
+/// stopped when the app exits.
+pub struct ContainerState(pub Mutex<Option<String>>);
+
+impl ContainerState {
+    pub fn new() -> Self {
+        ContainerState(Mutex::new(None))
+    }
+}
+
 const DEFAULT_IMAGE_TAG: &str = "coalfire-ember-runtime:latest";
 const DEFAULT_MODEL_CONFIG: &str = r#"{
   "provider": "lmstudio",
@@ -104,6 +114,7 @@ pub async fn runtime_health(
 pub async fn ensure_runtime(
     app: tauri::AppHandle,
     container_name: String,
+    container_state: tauri::State<'_, ContainerState>,
 ) -> Result<RuntimeHealth, String> {
     let paths = ensure_runtime_dirs(&app)?;
     let docker_dir = docker_context_dir(&app)?;
@@ -169,6 +180,9 @@ pub async fn ensure_runtime(
         }
     }
 
+    if let Ok(mut guard) = container_state.0.lock() {
+        *guard = Some(container_name.clone());
+    }
     Ok(inspect_runtime(&paths, container_name))
 }
 
@@ -185,12 +199,19 @@ pub async fn container_status(
 pub async fn container_start(
     app: tauri::AppHandle,
     container_name: String,
+    container_state: tauri::State<'_, ContainerState>,
 ) -> Result<RuntimeHealth, String> {
-    ensure_runtime(app, container_name).await
+    ensure_runtime(app, container_name, container_state).await
 }
 
 #[tauri::command]
-pub async fn container_stop(container_name: String) -> Result<(), String> {
+pub async fn container_stop(
+    container_name: String,
+    container_state: tauri::State<'_, ContainerState>,
+) -> Result<(), String> {
+    if let Ok(mut guard) = container_state.0.lock() {
+        *guard = None;
+    }
     let out = docker_cmd()
         .args(["stop", &container_name])
         .output()
@@ -603,7 +624,7 @@ fn display_path(path: &PathBuf) -> String {
 
 // Returns a docker Command with an extended PATH so Docker Desktop and
 // Homebrew installations are reachable from Tauri's restricted environment.
-fn docker_cmd() -> Command {
+pub fn docker_cmd() -> Command {
     let mut cmd = Command::new("docker");
     let current_path = std::env::var("PATH").unwrap_or_default();
     let mut full_path = [

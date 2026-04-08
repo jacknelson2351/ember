@@ -274,6 +274,11 @@ export function ChatPanel() {
       upsertThoughtLine(line);
     };
 
+    let unlistenEventFn: (() => void) | undefined;
+    let unlistenEndedFn: (() => void) | undefined;
+    let unlistenStderrFn: (() => void) | undefined;
+    let active = true;
+
     const unlistenEvent = onPiEvent((ev: PiEvent) => {
       switch (ev.type) {
         case 'agent_start': {
@@ -433,6 +438,8 @@ export function ChatPanel() {
       }
     });
 
+    unlistenEvent.then((fn) => { if (!active) fn(); else unlistenEventFn = fn; });
+
     const unlistenEnded = onPiEnded(() => {
       sessionActiveRef.current = false;
       if (restartAfterStopRef.current && containerStatusRef.current === 'running') {
@@ -447,14 +454,18 @@ export function ChatPanel() {
       setPiStatus('offline');
     });
 
+    unlistenEnded.then((fn) => { if (!active) fn(); else unlistenEndedFn = fn; });
+
     const unlistenStderr = onPiStderr((line: string) => {
       setStderrLines((prev) => [...prev.slice(-49), line]); // keep last 50 lines
     });
+    unlistenStderr.then((fn) => { if (!active) fn(); else unlistenStderrFn = fn; });
 
     return () => {
-      unlistenEvent.then((fn) => fn());
-      unlistenEnded.then((fn) => fn());
-      unlistenStderr.then((fn) => fn());
+      active = false;
+      unlistenEventFn?.();
+      unlistenEndedFn?.();
+      unlistenStderrFn?.();
     };
   }, [addMessage, addSessionEvent, setAgentStatus, setPiStatus, startSession, updateLastMessage, upsertThoughtLine]);
 
