@@ -194,19 +194,24 @@ function NoteCards({
       {notes.map((note) => (
         <div
           key={note.id}
-          className={`flex items-start gap-0 rounded-lg overflow-hidden group hover:bg-[#0f0f0f] transition-colors`}
+          className="flex items-center gap-2 px-2 py-1.5 rounded-lg group hover:bg-[#0f0f0f] transition-colors"
         >
-          {/* Active indicator bar — click to toggle */}
+          {/* Active toggle pill */}
           <button
             onClick={() => onTogglePin(note.id)}
-            title={note.pinned ? 'Make inactive' : 'Make active'}
-            className={`flex-shrink-0 self-stretch w-1.5 transition-colors ${
-              note.pinned ? 'bg-[#e85c2a]' : 'bg-white/5 hover:bg-white/15'
+            title={note.pinned ? 'Click to deactivate' : 'Click to activate'}
+            className={`flex-shrink-0 flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[9px] font-mono uppercase tracking-wider border transition-colors ${
+              note.pinned
+                ? 'border-[rgba(232,92,42,0.4)] bg-[rgba(232,92,42,0.12)] text-[#e85c2a]'
+                : 'border-white/8 bg-white/[0.02] text-[#3a3a3a] hover:text-[#6b6b6b] hover:border-white/15'
             }`}
-          />
+          >
+            <span className={`w-1 h-1 rounded-full ${note.pinned ? 'bg-[#e85c2a]' : 'bg-[#3a3a3a]'}`} />
+            {note.pinned ? 'on' : 'off'}
+          </button>
 
-          <div className="flex flex-1 items-start gap-2 px-2.5 py-2 min-w-0">
-            {/* Content */}
+          {/* Content */}
+          <div className="flex-1 min-w-0">
             {editingId === note.id ? (
               <input
                 autoFocus
@@ -214,40 +219,33 @@ function NoteCards({
                 onChange={(e) => onEditTextChange(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Enter' || e.key === 'Escape') onSaveEdit(); }}
                 onBlur={onSaveEdit}
-                className="flex-1 bg-transparent border-b border-[#e85c2a] text-[#e2e2e2] text-[12px] outline-none pb-0.5"
+                className="w-full bg-transparent border-b border-[#e85c2a] text-[#e2e2e2] text-[12px] outline-none pb-0.5"
               />
             ) : (
               <span
-                className="flex-1 text-[#c0c0c0] text-[12px] leading-relaxed break-words cursor-text min-w-0"
+                className={`text-[12px] leading-relaxed break-words cursor-text block ${note.pinned ? 'text-[#c0c0c0]' : 'text-[#5a5a5a]'}`}
                 onDoubleClick={() => onStartEdit(note.id, note.content)}
                 title="Double-click to edit"
               >
                 {note.content}
               </span>
             )}
+          </div>
 
-            {/* Badges + actions */}
-            <div className="flex items-center gap-1.5 flex-shrink-0 mt-0.5">
-              {note.pinned && (
-                <span className="text-[9px] text-[#e85c2a]/50 font-mono uppercase tracking-wider">
-                  injected
-                </span>
-              )}
-              <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                <button
-                  onClick={() => onStartEdit(note.id, note.content)}
-                  className="text-[10px] text-[#4a4a4a] hover:text-[#5f8fff] transition-colors"
-                >
-                  edit
-                </button>
-                <button
-                  onClick={() => onDelete(note.id)}
-                  className="text-[13px] text-[#4a4a4a] hover:text-[#e05252] transition-colors leading-none"
-                >
-                  ×
-                </button>
-              </div>
-            </div>
+          {/* Actions */}
+          <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+            <button
+              onClick={() => onStartEdit(note.id, note.content)}
+              className="text-[10px] text-[#4a4a4a] hover:text-[#5f8fff] transition-colors"
+            >
+              edit
+            </button>
+            <button
+              onClick={() => onDelete(note.id)}
+              className="text-[13px] text-[#4a4a4a] hover:text-[#e05252] transition-colors leading-none"
+            >
+              ×
+            </button>
           </div>
         </div>
       ))}
@@ -408,7 +406,7 @@ function AddNoteInput() {
   const submit = () => {
     const text = draft.trim();
     if (!text) return;
-    addNote({ id: crypto.randomUUID(), content: text, createdAt: Date.now(), pinned: false });
+    addNote({ id: crypto.randomUUID(), content: text, createdAt: Date.now(), pinned: true });
     setDraft('');
   };
 
