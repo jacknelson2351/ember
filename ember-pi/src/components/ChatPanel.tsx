@@ -303,6 +303,18 @@ export function ChatPanel() {
       upsertThoughtLine(line);
     };
 
+    const buildAssistantMessageState = (streaming: boolean) => {
+      const inline = parseContent(accText.current);
+      const mergedThought = mergeThoughtContent(accThought.current, inline.thought);
+      return {
+        content: inline.hasThought ? inline.response : accText.current,
+        thought: mergedThought ?? '',
+        thoughtStreaming: streaming && (thinkingActive.current || inline.thoughtStreaming),
+        streaming,
+        toolCalls: [...accTools.current],
+      };
+    };
+
     let unlistenEventFn: (() => void) | undefined;
     let unlistenEndedFn: (() => void) | undefined;
     let unlistenStderrFn: (() => void) | undefined;
@@ -337,41 +349,25 @@ export function ChatPanel() {
 
           if (d.type === 'thinking_start') {
             thinkingActive.current = true;
-            updateLastMessage({
-              thought: accThought.current,
-              thoughtStreaming: true,
-              streaming: true,
-              toolCalls: [...accTools.current],
-            });
+            const nextMessage = buildAssistantMessageState(true);
+            if (nextMessage.thought) syncThoughtLine(nextMessage.thought);
+            updateLastMessage(nextMessage);
           } else if (d.type === 'text_delta' && d.delta) {
             accText.current += d.delta;
-            updateLastMessage({
-              content: accText.current,
-              thought: accThought.current,
-              thoughtStreaming: thinkingActive.current,
-              streaming: true,
-              toolCalls: [...accTools.current],
-            });
+            const nextMessage = buildAssistantMessageState(true);
+            if (nextMessage.thought) syncThoughtLine(nextMessage.thought);
+            updateLastMessage(nextMessage);
           } else if (d.type === 'thinking_delta' && d.delta) {
             thinkingActive.current = true;
             accThought.current += d.delta;
-            syncThoughtLine();
-            updateLastMessage({
-              content: accText.current,
-              thought: accThought.current,
-              thoughtStreaming: true,
-              streaming: true,
-              toolCalls: [...accTools.current],
-            });
+            const nextMessage = buildAssistantMessageState(true);
+            if (nextMessage.thought) syncThoughtLine(nextMessage.thought);
+            updateLastMessage(nextMessage);
           } else if (d.type === 'thinking_end') {
             thinkingActive.current = false;
-            syncThoughtLine();
-            updateLastMessage({
-              thought: accThought.current,
-              thoughtStreaming: false,
-              streaming: true,
-              toolCalls: [...accTools.current],
-            });
+            const nextMessage = buildAssistantMessageState(true);
+            if (nextMessage.thought) syncThoughtLine(nextMessage.thought);
+            updateLastMessage(nextMessage);
           } else if (d.type === 'toolcall_end' && d.toolCall) {
             // Full tool call info available at toolcall_end
             const tc: ToolCall = {
@@ -386,18 +382,13 @@ export function ChatPanel() {
           } else if (d.type === 'done') {
             // Turn complete — finalize
             thinkingActive.current = false;
-            if (accThought.current.trim()) syncThoughtLine(accThought.current);
-            updateLastMessage({
-              content: accText.current,
-              thought: accThought.current,
-              thoughtStreaming: false,
-              streaming: false,
-              toolCalls: [...accTools.current],
-            });
+            const finalMessage = buildAssistantMessageState(false);
+            if (finalMessage.thought) syncThoughtLine(finalMessage.thought);
+            updateLastMessage(finalMessage);
             addSessionEvent({
               id: crypto.randomUUID(),
               type: 'agent',
-              content: accText.current,
+              content: finalMessage.content,
               timestamp: Date.now(),
             });
             setStopRequested(false);
@@ -928,24 +919,37 @@ function getMessageParts(message: ChatMessage): {
   hasThought: boolean;
   thoughtStreaming: boolean;
 } {
+  const inline = parseContent(message.content);
   if (message.role === 'agent' && (message.thought !== undefined || message.thoughtStreaming !== undefined)) {
-    const thought = message.thought?.trim() ?? '';
+    const thought = mergeThoughtContent(message.thought, inline.thought);
     return {
-      thought: thought || null,
-      response: message.content,
+      thought,
+      response: inline.hasThought ? inline.response : message.content,
       hasThought: Boolean(thought),
-      thoughtStreaming: Boolean(message.thoughtStreaming),
+      thoughtStreaming: Boolean(message.thoughtStreaming || inline.thoughtStreaming),
     };
   }
 
-  const parsed = parseContent(message.content);
   return {
-    ...parsed,
-    thoughtStreaming: Boolean(message.streaming && parsed.hasThought && !parsed.response.trim()),
+    ...inline,
+    thoughtStreaming: Boolean(message.streaming && inline.hasThought && (inline.thoughtStreaming || !inline.response.trim())),
   };
 }
 
-function parseContent(content: string): { thought: string | null; response: string; hasThought: boolean } {
+function mergeThoughtContent(...parts: Array<string | null | undefined>): string | null {
+  const merged = parts
+    .map((part) => part?.trim() ?? '')
+    .filter(Boolean)
+    .join('\n\n');
+  return merged || null;
+}
+
+function parseContent(content: string): {
+  thought: string | null;
+  response: string;
+  hasThought: boolean;
+  thoughtStreaming: boolean;
+} {
   const trimmed = content.trimStart();
   const thoughtPrefix = trimmed.match(/^\[THOUGHT\]:?\s*/i);
   if (thoughtPrefix) {
@@ -956,6 +960,7 @@ function parseContent(content: string): { thought: string | null; response: stri
         thought: body.slice(0, responseMarker.index).trim(),
         response: body.slice(responseMarker.index + responseMarker[0].length).trim(),
         hasThought: true,
+        thoughtStreaming: false,
       };
     }
     const blankLineIndex = body.search(/\n{2,}/);
@@ -965,30 +970,33 @@ function parseContent(content: string): { thought: string | null; response: stri
         thought: body.slice(0, blankLineIndex).trim(),
         response: body.slice(blankLineIndex + separator.length).trim(),
         hasThought: true,
+        thoughtStreaming: false,
       };
     }
-    return { thought: body.trim(), response: '', hasThought: true };
+    return { thought: body.trim(), response: '', hasThought: true, thoughtStreaming: true };
   }
 
-  const thinkOpen = trimmed.match(/^<think(?:ing)?>\s*/i);
-  if (thinkOpen) {
-    const body = trimmed.slice(thinkOpen[0].length);
-    const closeMatch = body.match(/<\/think(?:ing)?>/i);
+  const tagOpen = trimmed.match(/^<(think(?:ing)?|thought)>\s*/i);
+  if (tagOpen) {
+    const body = trimmed.slice(tagOpen[0].length);
+    const closeMatch = body.match(new RegExp(`</${tagOpen[1]}>`, 'i'));
     if (closeMatch?.index !== undefined) {
       return {
         thought: body.slice(0, closeMatch.index).trim() || null,
         response: body.slice(closeMatch.index + closeMatch[0].length).trim(),
         hasThought: true,
+        thoughtStreaming: false,
       };
     }
     return {
       thought: body.trim(),
       response: '',
       hasThought: true,
+      thoughtStreaming: true,
     };
   }
 
-  return { thought: null, response: content, hasThought: false };
+  return { thought: null, response: content, hasThought: false, thoughtStreaming: false };
 }
 
 /** Tools that write files — show a file card with reveal button. */
