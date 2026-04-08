@@ -419,6 +419,45 @@ pub fn quit_app(app: tauri::AppHandle) {
     app.exit(0);
 }
 
+/// Test whether an HTTP endpoint is reachable from the host (bypasses WebView CORS).
+/// Returns the HTTP status code on success, or an error string on failure.
+#[tauri::command]
+pub async fn test_endpoint(url: String, api_key: Option<String>) -> Result<u16, String> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(8))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let mut req = client.get(&url);
+    if let Some(key) = api_key.filter(|k| !k.is_empty()) {
+        req = req.header("Authorization", format!("Bearer {key}"));
+    }
+
+    let res = req.send().await.map_err(|e| e.to_string())?;
+    Ok(res.status().as_u16())
+}
+
+/// Fetch JSON from a URL on the host (bypasses WebView CORS).
+/// Returns the response body as a string, or an error string on failure.
+#[tauri::command]
+pub async fn fetch_json(url: String, api_key: Option<String>) -> Result<String, String> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(8))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let mut req = client.get(&url);
+    if let Some(key) = api_key.filter(|k| !k.is_empty()) {
+        req = req.header("Authorization", format!("Bearer {key}"));
+    }
+
+    let res = req.send().await.map_err(|e| e.to_string())?;
+    if !res.status().is_success() {
+        return Err(format!("HTTP {}", res.status().as_u16()));
+    }
+    res.text().await.map_err(|e| e.to_string())
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 fn ensure_runtime_dirs(app: &tauri::AppHandle) -> Result<RuntimePaths, String> {

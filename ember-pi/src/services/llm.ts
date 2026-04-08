@@ -1,3 +1,4 @@
+import { invoke } from '@tauri-apps/api/core';
 import type { ChatMessage, ModelConfig, OutputLine } from '../types';
 
 function isOpenAICompatibleProvider(provider: ModelConfig['provider']): boolean {
@@ -620,16 +621,18 @@ export async function testConnection(config: ModelConfig): Promise<{ ok: boolean
       return { ok: false, latency, message: `HTTP ${res.status}` };
     }
 
+    // Use native Rust HTTP to avoid WebView CORS restrictions on local servers
     const endpoint = normalizeEndpoint(config.endpoint);
-    const res = await fetch(`${endpoint}/models`, {
-      headers: config.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : {},
+    const status = await invoke<number>('test_endpoint', {
+      url: `${endpoint}/models`,
+      apiKey: config.apiKey || null,
     });
     const latency = Date.now() - start;
-    if (res.ok) {
+    if (status >= 200 && status < 300) {
       const providerName = config.provider === 'lmstudio' ? 'LM Studio' : config.provider;
       return { ok: true, latency, message: `${providerName} connected (${latency}ms)` };
     }
-    return { ok: false, latency, message: `HTTP ${res.status}` };
+    return { ok: false, latency, message: `HTTP ${status}` };
   } catch (e) {
     return {
       ok: false,
@@ -666,12 +669,12 @@ export async function discoverModels(config: ModelConfig): Promise<string[]> {
     const endpoint = normalizeEndpoint(config.endpoint);
     if (!endpoint) return [];
 
-    const res = await fetch(`${endpoint}/models`, {
-      headers: config.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : {},
+    // Use native Rust HTTP to avoid WebView CORS restrictions on local servers
+    const body = await invoke<string>('fetch_json', {
+      url: `${endpoint}/models`,
+      apiKey: config.apiKey || null,
     });
-    if (!res.ok) return [];
-
-    const json = await res.json();
+    const json = JSON.parse(body);
     return Array.isArray(json.data)
       ? json.data.map((entry: { id?: string }) => entry.id).filter(Boolean)
       : [];

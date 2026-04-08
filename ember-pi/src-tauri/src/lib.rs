@@ -104,6 +104,8 @@ pub fn run() {
             commands::pi_start,
             commands::pi_send,
             commands::pi_stop,
+            commands::test_endpoint,
+            commands::fetch_json,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
