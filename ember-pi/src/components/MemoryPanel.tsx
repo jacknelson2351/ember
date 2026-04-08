@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAppStore } from '../stores/appStore';
 import { buildEffectivePrompt } from '../utils/buildPrompt';
 
@@ -26,13 +26,85 @@ export function MemoryPanel() {
       </div>
 
       {/* Scrollable body */}
-      <div className={`flex-1 min-h-0 overflow-y-auto transition-opacity ${injecting ? '' : 'opacity-40 pointer-events-none'}`}>
-        <KnowledgeSection />
-        <SkillsSection />
+      <div className="flex-1 min-h-0 overflow-y-auto">
+        <SystemPromptSection />
+        <div className={`transition-opacity ${injecting ? '' : 'opacity-40 pointer-events-none'}`}>
+          <KnowledgeSection />
+          <SkillsSection />
+        </div>
       </div>
 
       <ContextPreviewDrawer />
       <AddNoteInput />
+    </div>
+  );
+}
+
+// ── System prompt ─────────────────────────────────────────────────────────────
+
+function SystemPromptSection() {
+  const { systemPrompt, setSystemPrompt } = useAppStore();
+  const [open, setOpen] = useState(false);
+  const [local, setLocal] = useState(systemPrompt);
+  const [saved, setSaved] = useState(false);
+
+  // Keep local in sync if store changes from outside
+  useEffect(() => { setLocal(systemPrompt); }, [systemPrompt]);
+
+  const save = () => {
+    setSystemPrompt(local);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 1500);
+  };
+
+  const isDirty = local !== systemPrompt;
+
+  return (
+    <div className="border-b border-[#1a1a1a]">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="flex items-center gap-2 w-full px-4 py-2.5 text-left group"
+      >
+        <span className={`text-[10px] text-[#4a4a4a] transition-transform ${open ? 'rotate-90' : ''}`}>▶</span>
+        <span className="text-[10px] uppercase tracking-widest text-[#4a4a4a] group-hover:text-[#6b6b6b] transition-colors flex-1">
+          System Prompt
+        </span>
+        {systemPrompt.trim() && (
+          <span className="text-[9px] font-mono text-[#2a2a2a]">{systemPrompt.length}ch</span>
+        )}
+      </button>
+
+      {open && (
+        <div className="px-3 pb-3 space-y-2">
+          <p className="text-[10px] text-[#3a3a3a] px-0.5">
+            Always prepended to Ember's context. Notes and skills are appended after.
+          </p>
+          <textarea
+            value={local}
+            onChange={(e) => setLocal(e.target.value)}
+            rows={6}
+            className="w-full resize-none rounded-xl border border-white/8 bg-white/[0.03] px-3 py-2.5 font-mono text-[11px] leading-relaxed text-slate-200 outline-none transition focus:border-white/15"
+            spellCheck={false}
+            placeholder="No system prompt set…"
+          />
+          {isDirty && (
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => setLocal(systemPrompt)}
+                className="text-[10px] text-[#4a4a4a] hover:text-[#6b6b6b] transition-colors"
+              >
+                revert
+              </button>
+              <button
+                onClick={save}
+                className="text-[10px] text-[#e85c2a] hover:text-[#d44f20] transition-colors"
+              >
+                {saved ? '✓ saved' : 'save'}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

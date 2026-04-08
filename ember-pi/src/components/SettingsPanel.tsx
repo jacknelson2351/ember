@@ -5,11 +5,10 @@ import { startContainer, stopContainer, getContainerLogs } from '../services/con
 import { testConnection, discoverModels } from '../services/llm';
 import type { ModelConfig } from '../types';
 
-type Section = 'model' | 'agent' | 'runtime' | 'behavior' | 'session';
+type Section = 'model' | 'runtime' | 'behavior' | 'session';
 
 const SECTIONS: { id: Section; label: string }[] = [
   { id: 'model',   label: 'AI Model' },
-  { id: 'agent',   label: 'Agent Prompt' },
   { id: 'runtime', label: 'Runtime' },
   { id: 'behavior', label: 'Behavior' },
   { id: 'session', label: 'Session' },
@@ -39,7 +38,6 @@ export function SettingsPanel() {
 
       <div className="min-h-0 flex-1 overflow-y-auto scrollbar-thin">
         {section === 'model'   && <ModelSection />}
-        {section === 'agent'   && <AgentSection />}
         {section === 'runtime' && <RuntimeSection />}
         {section === 'behavior' && <BehaviorSection />}
         {section === 'session'  && <SessionSection />}
@@ -203,36 +201,6 @@ function ModelSection() {
           {testResult.message}
         </div>
       )}
-    </div>
-  );
-}
-
-// ── Agent Prompt ─────────────────────────────────────────────────────────────
-
-function AgentSection() {
-  const { systemPrompt, setSystemPrompt } = useAppStore();
-  const [local, setLocal] = useState(systemPrompt);
-  const [saved, setSaved] = useState(false);
-
-  const save = () => {
-    setSystemPrompt(local);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 1500);
-  };
-
-  return (
-    <div className="space-y-3 px-4 py-4">
-      <p className="text-[11px] text-slate-600">
-        Prepended before every message. Memory notes are injected after it when memory mode is active.
-      </p>
-      <textarea
-        value={local}
-        onChange={(e) => setLocal(e.target.value)}
-        rows={12}
-        className="w-full resize-none rounded-xl border border-white/8 bg-white/[0.03] px-3 py-2.5 font-mono text-[12px] leading-relaxed text-slate-200 outline-none transition focus:border-white/15"
-        spellCheck={false}
-      />
-      <Btn label={saved ? '✓ Saved' : 'Save Prompt'} onClick={save} />
     </div>
   );
 }
