@@ -147,7 +147,7 @@ export async function startPiSession(
     const modelsJson = buildModelsJson(config);
     await invoke('container_write_file', {
       containerName,
-      path: '/root/.pi/agent/models.json',
+      path: '/home/ember/.pi/agent/models.json',
       content: modelsJson,
     });
     extraArgs.push('--provider', config.provider);

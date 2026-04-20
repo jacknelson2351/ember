@@ -1,8 +1,10 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { useAppStore } from '../stores/appStore';
+import { useShallow } from 'zustand/react/shallow';
+import { useEphemeralStore, usePersistedStore } from '../stores/appStore';
 import { startContainer, stopContainer, getContainerLogs } from '../services/container';
 import { testConnection, discoverModels } from '../services/llm';
+import { loadProviderApiKey, saveProviderApiKey } from '../services/secrets';
 import type { ModelConfig } from '../types';
 
 type Section = 'model' | 'runtime' | 'behavior' | 'session';
@@ -50,15 +52,18 @@ export function SettingsPanel() {
 
 const PROVIDERS: { id: ModelConfig['provider']; label: string; endpoint: string; model: string; needsKey: boolean }[] = [
   { id: 'openai',    label: 'OpenAI / ChatGPT',   endpoint: 'https://api.openai.com/v1',    model: 'gpt-4o',             needsKey: true  },
-  { id: 'anthropic', label: 'Anthropic / Claude',  endpoint: '',                             model: 'claude-opus-4-6',    needsKey: true  },
-  { id: 'google',    label: 'Google / Gemini',     endpoint: '',                             model: 'gemini-2.0-flash',   needsKey: true  },
+  { id: 'anthropic', label: 'Anthropic / Claude',  endpoint: '',                             model: 'claude-opus-4-7',    needsKey: true  },
+  { id: 'google',    label: 'Google / Gemini',     endpoint: '',                             model: 'gemini-2.5-flash',   needsKey: true  },
   { id: 'lmstudio',  label: 'LM Studio',           endpoint: 'http://localhost:1234/v1',    model: '',                   needsKey: false },
   { id: 'ollama',    label: 'Ollama',              endpoint: 'http://localhost:11434/v1',   model: '',                   needsKey: false },
-  { id: 'custom',    label: 'Custom',              endpoint: '',                             model: '',                   needsKey: false },
+  { id: 'custom',    label: 'Custom',              endpoint: '',                             model: '',                   needsKey: true  },
 ];
 
 function ModelSection() {
-  const { modelConfig, setModelConfig } = useAppStore();
+  const { modelConfig, setModelConfig } = usePersistedStore(useShallow((state) => ({
+    modelConfig: state.modelConfig,
+    setModelConfig: state.setModelConfig,
+  })));
   const [local, setLocal] = useState<ModelConfig>({ ...modelConfig });
   const [testing, setTesting] = useState(false);
   const [discovering, setDiscovering] = useState(false);
@@ -68,17 +73,28 @@ function ModelSection() {
 
   const currentProvider = PROVIDERS.find((p) => p.id === local.provider)!;
 
-  const selectProvider = (id: ModelConfig['provider']) => {
+  useEffect(() => {
+    setLocal({ ...modelConfig });
+  }, [modelConfig]);
+
+  const selectProvider = async (id: ModelConfig['provider']) => {
     const p = PROVIDERS.find((x) => x.id === id)!;
-    setLocal({ ...local, provider: id, endpoint: p.endpoint, model: p.model });
+    const apiKey = p.needsKey ? await loadProviderApiKey(id) : '';
+    setLocal((prev) => ({ ...prev, provider: id, endpoint: p.endpoint, model: p.model, apiKey: apiKey || undefined }));
     setTestResult(null);
     setFoundModels([]);
   };
 
-  const save = () => {
-    setModelConfig(local);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 1500);
+  const save = async () => {
+    try {
+      const apiKey = currentProvider.needsKey ? local.apiKey?.trim() ?? '' : '';
+      await saveProviderApiKey(local.provider, apiKey);
+      setModelConfig({ ...local, apiKey: apiKey || undefined });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 1500);
+    } catch (error) {
+      setTestResult({ ok: false, message: String(error) });
+    }
   };
 
   const test = async () => {
@@ -208,14 +224,18 @@ function ModelSection() {
 // ── Runtime ───────────────────────────────────────────────────────────────────
 
 function RuntimeSection() {
-  const {
-    containerStatus,
-    containerName,
-    setContainerStatus,
-    setRuntimeHealth,
-    addTerminalLine,
-    runtimeHealth,
-  } = useAppStore();
+  const { containerName } = usePersistedStore(useShallow((state) => ({
+    containerName: state.containerName,
+  })));
+  const { containerStatus, setContainerStatus, setRuntimeHealth, addTerminalLine, runtimeHealth } = useEphemeralStore(
+    useShallow((state) => ({
+      containerStatus: state.containerStatus,
+      setContainerStatus: state.setContainerStatus,
+      setRuntimeHealth: state.setRuntimeHealth,
+      addTerminalLine: state.addTerminalLine,
+      runtimeHealth: state.runtimeHealth,
+    })),
+  );
 
   const [logs, setLogs] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -313,7 +333,10 @@ function RuntimeSection() {
 // ── Behavior ─────────────────────────────────────────────────────────────────
 
 function BehaviorSection() {
-  const { appearance, setAppearance } = useAppStore();
+  const { appearance, setAppearance } = usePersistedStore(useShallow((state) => ({
+    appearance: state.appearance,
+    setAppearance: state.setAppearance,
+  })));
 
   const toggleAlwaysOnTop = async () => {
     const next = !appearance.alwaysOnTop;
@@ -451,7 +474,10 @@ function Toggle({
 // ── Session log ───────────────────────────────────────────────────────────────
 
 function SessionSection() {
-  const { sessionLog, clearSessionLog } = useAppStore();
+  const { sessionLog, clearSessionLog } = useEphemeralStore(useShallow((state) => ({
+    sessionLog: state.sessionLog,
+    clearSessionLog: state.clearSessionLog,
+  })));
 
   const typeColor: Record<string, string> = {
     user:   'text-[#5f8fff]',

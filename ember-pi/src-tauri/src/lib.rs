@@ -15,7 +15,8 @@ fn snap_to_top_center(window: &tauri::WebviewWindow) {
         let phys = monitor.size();
         let screen_w = phys.width as f64 / scale;
         let top_margin: f64 = 18.0;
-        let win_w = window.outer_size()
+        let win_w = window
+            .outer_size()
             .map(|s| s.width as f64 / scale)
             .unwrap_or(780.0);
         let x = ((screen_w - win_w) / 2.0).max(0.0);
@@ -28,16 +29,16 @@ pub fn run() {
     tauri::Builder::default()
         .manage(commands::PiState::new())
         .manage(commands::ContainerState::new())
+        .manage(commands::RuntimeHealthCache::new())
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::Destroyed = event {
                 let app = window.app_handle();
                 let state = app.state::<commands::ContainerState>();
-                let name = state.0.lock().ok()
-                    .and_then(|g| g.clone());
+                let name = state.0.lock().ok().and_then(|g| g.clone());
                 if let Some(name) = name {
-                    let _ = commands::docker_cmd()
-                        .args(["stop", &name])
-                        .output();
+                    std::thread::spawn(move || {
+                        let _ = commands::docker_cmd().args(["stop", &name]).output();
+                    });
                 }
             }
         })
@@ -52,10 +53,8 @@ pub fn run() {
                 let _ = window.set_focus();
             }
 
-            let icon = tauri::image::Image::from_bytes(
-                include_bytes!("../icons/32x32.png"),
-            )
-            .expect("icon load failed");
+            let icon = tauri::image::Image::from_bytes(include_bytes!("../icons/32x32.png"))
+                .expect("icon load failed");
 
             let tray = TrayIconBuilder::new()
                 .icon(icon)
@@ -84,21 +83,17 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            commands::docker_run,
             commands::runtime_health,
             commands::ensure_runtime,
             commands::container_status,
             commands::container_start,
             commands::container_stop,
             commands::container_logs,
-            commands::container_exec,
             commands::list_dir,
             commands::read_file,
             commands::write_file,
             commands::write_file_bytes,
-            commands::copy_file,
             commands::delete_file,
-            commands::shell_exec,
             commands::quit_app,
             commands::container_write_file,
             commands::pi_start,
@@ -106,6 +101,8 @@ pub fn run() {
             commands::pi_stop,
             commands::test_endpoint,
             commands::fetch_json,
+            commands::get_provider_api_key,
+            commands::set_provider_api_key,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

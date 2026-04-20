@@ -1,11 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { ContainerStatus, RuntimeHealth } from '../types';
-
-interface CommandResult {
-  stdout: string;
-  stderr: string;
-  success: boolean;
-}
+import type { RuntimeHealth } from '../types';
 
 const FALLBACK_RUNTIME: RuntimeHealth = {
   dockerStatus: 'checking',
@@ -37,11 +31,6 @@ export async function ensureRuntime(name: string): Promise<RuntimeHealth> {
   return await invoke<RuntimeHealth>('ensure_runtime', { containerName: name });
 }
 
-export async function getContainerStatus(name: string): Promise<ContainerStatus> {
-  const runtime = await getRuntimeHealth(name);
-  return runtime.containerStatus;
-}
-
 export async function startContainer(name: string): Promise<RuntimeHealth> {
   return await invoke<RuntimeHealth>('container_start', { containerName: name });
 }
@@ -56,16 +45,4 @@ export async function getContainerLogs(name: string, tail = 100): Promise<string
   } catch {
     return '';
   }
-}
-
-export async function execInContainer(
-  containerName: string,
-  cmd: string,
-  args: string[] = []
-): Promise<CommandResult> {
-  return await invoke<CommandResult>('container_exec', { containerName, cmd, args });
-}
-
-export async function dockerRun(args: string[]): Promise<CommandResult> {
-  return await invoke<CommandResult>('docker_run', { args });
 }

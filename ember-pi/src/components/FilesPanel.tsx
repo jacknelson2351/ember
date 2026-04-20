@@ -1,8 +1,8 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { revealItemInDir } from '@tauri-apps/plugin-opener';
-import { useAppStore, useEphemeralStore } from '../stores/appStore';
-import { listDir, readFile, copyFile, writeFileBytes, deleteFile } from '../services/files';
+import { useEphemeralStore } from '../stores/appStore';
+import { useShallow } from 'zustand/react/shallow';
+import { listDir, readFile, writeFileBytes, deleteFile } from '../services/files';
 import type { WorkspaceFile } from '../types';
 
 function formatSize(bytes: number): string {
@@ -29,12 +29,13 @@ function fileIcon(file: WorkspaceFile): string {
 }
 
 export function FilesPanel() {
-  const { runtimeHealth } = useAppStore();
+  const { runtimeHealth } = useEphemeralStore(useShallow((state) => ({
+    runtimeHealth: state.runtimeHealth,
+  })));
   const rootPath = runtimeHealth?.sharedPath ?? '';
 
   const [files, setFiles] = useState<WorkspaceFile[]>([]);
   const [currentPath, setCurrentPath] = useState('');
-  const [dragging, setDragging] = useState(false);
   const [loading, setLoading] = useState(false);
   const [viewing, setViewing] = useState<{ file: WorkspaceFile; content: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -101,47 +102,6 @@ export function FilesPanel() {
       load(rootPath);
     }
   }, [rootPath, currentPath, load]);
-
-  // ── Tauri drag-and-drop event handler ────────────────────────────────────
-  // Tauri intercepts file drops before the browser sees them.
-  // onDragDropEvent gives us the host filesystem paths of dropped files.
-
-  useEffect(() => {
-    let unlisten: (() => void) | null = null;
-
-    getCurrentWebview().onDragDropEvent(async (event) => {
-      const payload = event.payload;
-
-      if (payload.type === 'enter') {
-        setDragging(true);
-      } else if (payload.type === 'leave') {
-        setDragging(false);
-      } else if (payload.type === 'drop') {
-        setDragging(false);
-        const dest = currentPathRef.current;
-        if (!dest || payload.paths.length === 0) return;
-
-        const names = payload.paths.map((p) => p.split('/').pop() ?? p);
-        setCopying(names);
-
-        const errors: string[] = [];
-        for (const srcPath of payload.paths) {
-          const fileName = srcPath.split('/').pop() ?? 'file';
-          try {
-            await copyFile(srcPath, `${dest}/${fileName}`);
-          } catch (e) {
-            errors.push(`${fileName}: ${e}`);
-          }
-        }
-
-        setCopying([]);
-        if (errors.length) setError(errors.join('\n'));
-        await loadRef.current(dest);
-      }
-    }).then((fn) => { unlisten = fn; });
-
-    return () => { unlisten?.(); };
-  }, []); // register once — uses refs for current values
 
   // ── File viewer ───────────────────────────────────────────────────────────
 
@@ -252,16 +212,7 @@ export function FilesPanel() {
         </button>
       </div>
 
-      {/* File list area — also acts as drop target (window-level drop handled by Tauri) */}
-      <div className={`relative min-h-0 flex-1 overflow-y-auto scrollbar-thin transition-colors ${dragging ? 'bg-[rgba(255,109,43,0.04)]' : ''}`}>
-
-        {/* Drop overlay */}
-        {dragging && (
-          <div className="pointer-events-none absolute inset-2 z-10 flex items-center justify-center rounded-xl border-2 border-dashed border-[rgba(255,109,43,0.5)] bg-[rgba(255,109,43,0.05)]">
-            <p className="text-[12px] font-medium text-[rgba(255,109,43,0.9)]">Drop to add to workspace</p>
-          </div>
-        )}
-
+      <div className="relative min-h-0 flex-1 overflow-y-auto scrollbar-thin transition-colors">
         {/* Copy progress */}
         {copying.length > 0 && (
           <div className="mx-3 mt-2 rounded-lg border border-amber-500/20 bg-amber-500/[0.06] px-3 py-2">
@@ -300,7 +251,7 @@ export function FilesPanel() {
         {!loading && rootPath && files.length === 0 && !error && (
           <div className="px-4 pt-10 text-center">
             <p className="text-[12px] text-slate-600">Empty workspace</p>
-            <p className="mt-1 text-[11px] text-slate-700">Drag files here from Finder to add them.</p>
+            <p className="mt-1 text-[11px] text-slate-700">Use Upload to add files from Finder.</p>
           </div>
         )}
 

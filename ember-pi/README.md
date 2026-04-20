@@ -1,12 +1,12 @@
 # Coalfire Ember
 
-Coalfire Ember is a macOS-first Tauri desktop toolbar for security-oriented AI workflows. The current shell is a centered floating pill that expands into a single panel workspace for chat, terminal, files, memory, thoughts, and settings.
+Coalfire Ember is a macOS-first Tauri desktop toolbar for security-oriented AI workflows. The current shell is a centered floating pill that expands into a single panel workspace for chat, files, memory, and settings.
 
 ## Current UI Model
 
 - The app opens as a centered floating pill near the top of the screen.
 - Click the Coalfire logo or `Ask` to open chat.
-- Click `Terminal`, `Thoughts`, `Files`, `Memory`, or `Settings` to open those panels.
+- Click `Files`, `Memory`, or `Settings` to open those panels.
 - Use the left drag handle to move the pill.
 - Use the chevron to collapse the active panel.
 - Use `×` to quit the app.
@@ -30,6 +30,7 @@ LM Studio remains the default local-model path:
 3. Launch Coalfire Ember.
 4. Open `Settings -> Model`.
 5. Choose your provider and save the endpoint, model name, and API key if needed.
+   API keys are stored in the macOS Keychain instead of browser persistence.
 6. Start the runtime from the runtime status control or `Settings -> Container`.
 
 The app creates and reuses writable runtime data under its application data directory. Docker image and container bootstrap are handled by the app runtime commands.

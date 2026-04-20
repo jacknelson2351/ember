@@ -16,8 +16,14 @@ import type {
 } from '../types';
 
 function sanitizeModelConfig(modelConfig: ModelConfig): ModelConfig {
-  const model = modelConfig.model === 'local-model' ? '' : modelConfig.model;
-  return { ...modelConfig, endpoint: modelConfig.endpoint.trim(), model };
+  const model = modelConfig.model.trim() === 'local-model' ? '' : modelConfig.model.trim();
+  const apiKey = modelConfig.apiKey?.trim();
+  return {
+    ...modelConfig,
+    endpoint: modelConfig.endpoint.trim(),
+    model,
+    apiKey: apiKey ? apiKey : undefined,
+  };
 }
 
 // ── Persisted slice (survives reload) ───────────────────────────────────────
@@ -57,7 +63,7 @@ interface PersistedState {
   setAppearance: (a: Partial<AppearanceConfig>) => void;
 }
 
-const usePersistedStore = create<PersistedState>()(
+export const usePersistedStore = create<PersistedState>()(
   persist(
     (set) => ({
       modelConfig: {
@@ -132,7 +138,14 @@ const usePersistedStore = create<PersistedState>()(
     }),
     {
       name: 'ember-pi-persist',
-      version: 2,
+      version: 3,
+      partialize: (state) => ({
+        ...state,
+        modelConfig: {
+          ...state.modelConfig,
+          apiKey: undefined,
+        },
+      }),
       migrate: (persistedState, fromVersion) => {
         const s = (persistedState ?? {}) as Record<string, unknown>;
         // v0→v1: collapseOnBlur didn't exist
@@ -149,6 +162,12 @@ const usePersistedStore = create<PersistedState>()(
           if (OLD_PROMPTS.some((p) => current.startsWith(p))) {
             delete s.systemPrompt; // let the code default take over
           }
+        }
+        // v2→v3: API keys moved out of localStorage-backed persistence
+        if (fromVersion < 3) {
+          const modelConfig = (s.modelConfig as Record<string, unknown> | undefined) ?? {};
+          delete modelConfig.apiKey;
+          s.modelConfig = modelConfig;
         }
         return s as unknown as PersistedState;
       },
@@ -289,11 +308,3 @@ export const useEphemeralStore = create<EphemeralState>((set) => ({
   suppressBlurCollapse: false,
   setSuppressBlurCollapse: (suppressBlurCollapse) => set({ suppressBlurCollapse }),
 }));
-
-// ── Unified hook (merges both slices) ───────────────────────────────────────
-
-export function useAppStore() {
-  const p = usePersistedStore();
-  const e = useEphemeralStore();
-  return { ...p, ...e };
-}

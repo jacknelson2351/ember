@@ -1,9 +1,13 @@
 import { useState, useEffect } from 'react';
-import { useAppStore } from '../stores/appStore';
+import { usePersistedStore } from '../stores/appStore';
+import { useShallow } from 'zustand/react/shallow';
 import { buildEffectivePrompt } from '../utils/buildPrompt';
 
 export function MemoryPanel() {
-  const { memoryMode, setMemoryMode } = useAppStore();
+  const { memoryMode, setMemoryMode } = usePersistedStore(useShallow((state) => ({
+    memoryMode: state.memoryMode,
+    setMemoryMode: state.setMemoryMode,
+  })));
   const injecting = memoryMode !== 'off';
 
   return (
@@ -43,7 +47,10 @@ export function MemoryPanel() {
 // ── System prompt ─────────────────────────────────────────────────────────────
 
 function SystemPromptSection() {
-  const { systemPrompt, setSystemPrompt } = useAppStore();
+  const { systemPrompt, setSystemPrompt } = usePersistedStore(useShallow((state) => ({
+    systemPrompt: state.systemPrompt,
+    setSystemPrompt: state.setSystemPrompt,
+  })));
   const [open, setOpen] = useState(false);
   const [local, setLocal] = useState(systemPrompt);
   const [saved, setSaved] = useState(false);
@@ -112,7 +119,12 @@ function SystemPromptSection() {
 // ── Knowledge (notes) ─────────────────────────────────────────────────────────
 
 function KnowledgeSection() {
-  const { notes, togglePin, deleteNote, updateNote } = useAppStore();
+  const { notes, togglePin, deleteNote, updateNote } = usePersistedStore(useShallow((state) => ({
+    notes: state.notes,
+    togglePin: state.togglePin,
+    deleteNote: state.deleteNote,
+    updateNote: state.updateNote,
+  })));
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editText, setEditText] = useState('');
 
@@ -256,7 +268,11 @@ function NoteCards({
 // ── Skills ────────────────────────────────────────────────────────────────────
 
 function SkillsSection() {
-  const { skills, toggleSkill, updateSkill } = useAppStore();
+  const { skills, toggleSkill, updateSkill } = usePersistedStore(useShallow((state) => ({
+    skills: state.skills,
+    toggleSkill: state.toggleSkill,
+    updateSkill: state.updateSkill,
+  })));
   const [open, setOpen] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [draftContent, setDraftContent] = useState<Record<string, string>>({});
@@ -368,7 +384,12 @@ function SkillsSection() {
 // ── Context preview ───────────────────────────────────────────────────────────
 
 function ContextPreviewDrawer() {
-  const { systemPrompt, memoryMode, notes, skills } = useAppStore();
+  const { systemPrompt, memoryMode, notes, skills } = usePersistedStore(useShallow((state) => ({
+    systemPrompt: state.systemPrompt,
+    memoryMode: state.memoryMode,
+    notes: state.notes,
+    skills: state.skills,
+  })));
   const [open, setOpen] = useState(false);
 
   const preview = buildEffectivePrompt({ systemPrompt, memoryMode, notes, skills });
@@ -400,7 +421,9 @@ function ContextPreviewDrawer() {
 // ── Add note input ────────────────────────────────────────────────────────────
 
 function AddNoteInput() {
-  const { addNote } = useAppStore();
+  const { addNote } = usePersistedStore(useShallow((state) => ({
+    addNote: state.addNote,
+  })));
   const [draft, setDraft] = useState('');
 
   const submit = () => {

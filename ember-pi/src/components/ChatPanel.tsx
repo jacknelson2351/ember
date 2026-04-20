@@ -2,9 +2,9 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { revealItemInDir } from '@tauri-apps/plugin-opener';
-import { useAppStore, useEphemeralStore } from '../stores/appStore';
-import { writeFileBytes, copyFile } from '../services/files';
-import { getCurrentWebview } from '@tauri-apps/api/webview';
+import { useShallow } from 'zustand/react/shallow';
+import { useEphemeralStore, usePersistedStore } from '../stores/appStore';
+import { writeFileBytes } from '../services/files';
 import { EmberBuddy } from './EmberBuddy';
 import {
   startPiSession,
@@ -34,17 +34,40 @@ export function ChatPanel() {
     clearMessages,
     agentStatus,
     setAgentStatus,
+    containerStatus,
+    addSessionEvent,
+    upsertThoughtLine,
+    runtimeHealth,
+  } = useEphemeralStore(useShallow((state) => ({
+    messages: state.messages,
+    inputValue: state.inputValue,
+    setInputValue: state.setInputValue,
+    addMessage: state.addMessage,
+    updateLastMessage: state.updateLastMessage,
+    clearMessages: state.clearMessages,
+    agentStatus: state.agentStatus,
+    setAgentStatus: state.setAgentStatus,
+    containerStatus: state.containerStatus,
+    addSessionEvent: state.addSessionEvent,
+    upsertThoughtLine: state.upsertThoughtLine,
+    runtimeHealth: state.runtimeHealth,
+  })));
+
+  const {
     modelConfig,
     systemPrompt,
     memoryMode,
     notes,
     skills,
-    containerStatus,
     containerName,
-    addSessionEvent,
-    upsertThoughtLine,
-    runtimeHealth,
-  } = useAppStore();
+  } = usePersistedStore(useShallow((state) => ({
+    modelConfig: state.modelConfig,
+    systemPrompt: state.systemPrompt,
+    memoryMode: state.memoryMode,
+    notes: state.notes,
+    skills: state.skills,
+    containerName: state.containerName,
+  })));
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -53,35 +76,33 @@ export function ChatPanel() {
   // ── Voice to text ────────────────────────────────────────────────────────
   const [voiceActive, setVoiceActive] = useState(false);
   const [voiceInterim, setVoiceInterim] = useState('');
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const recognitionRef = useRef<any>(null);
+  const recognitionRef = useRef<SpeechRecognition | null>(null);
+  const voiceInterimTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Keep a ref to inputValue so the onresult closure always sees the latest value
   const inputValueRef = useRef(inputValue);
   inputValueRef.current = inputValue;
 
   const startVoice = useCallback(() => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const SR: any = (window as any).SpeechRecognition ?? (window as any).webkitSpeechRecognition;
-    if (!SR) {
+    const SpeechRecognitionCtor = window.SpeechRecognition ?? window.webkitSpeechRecognition;
+    if (!SpeechRecognitionCtor) {
       setVoiceInterim('Voice input unavailable — check microphone permissions');
-      setTimeout(() => setVoiceInterim(''), 3500);
+      if (voiceInterimTimerRef.current) clearTimeout(voiceInterimTimerRef.current);
+      voiceInterimTimerRef.current = setTimeout(() => setVoiceInterim(''), 3500);
       return;
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const r: any = new SR();
-    r.continuous = true;
-    r.interimResults = true;
-    r.lang = 'en-US';
+    const recognition = new SpeechRecognitionCtor();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = 'en-US';
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    r.onresult = (e: any) => {
+    recognition.onresult = (event: SpeechRecognitionEvent) => {
       let interim = '';
       let final = '';
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        const t = e.results[i][0].transcript;
-        if (e.results[i].isFinal) final += t;
-        else interim += t;
+      for (let i = event.resultIndex; i < event.results.length; i += 1) {
+        const transcript = event.results[i][0]?.transcript ?? '';
+        if (event.results[i].isFinal) final += transcript;
+        else interim += transcript;
       }
       if (final) {
         const prev = inputValueRef.current;
@@ -90,17 +111,27 @@ export function ChatPanel() {
       setVoiceInterim(interim);
     };
 
-    r.onerror = () => { setVoiceActive(false); setVoiceInterim(''); };
-    r.onend = () => { setVoiceActive(false); setVoiceInterim(''); };
+    recognition.onerror = () => {
+      setVoiceActive(false);
+      setVoiceInterim('');
+    };
+    recognition.onend = () => {
+      setVoiceActive(false);
+      setVoiceInterim('');
+    };
 
-    recognitionRef.current = r;
-    r.start();
+    recognitionRef.current = recognition;
+    recognition.start();
     setVoiceActive(true);
   }, [setInputValue]);
 
   const stopVoice = useCallback(() => {
     recognitionRef.current?.stop();
     recognitionRef.current = null;
+    if (voiceInterimTimerRef.current) {
+      clearTimeout(voiceInterimTimerRef.current);
+      voiceInterimTimerRef.current = null;
+    }
     setVoiceActive(false);
     setVoiceInterim('');
   }, []);
@@ -114,13 +145,13 @@ export function ChatPanel() {
   const [stderrLines, setStderrLines] = useState<string[]>([]);
   // Happy flash — true for ~1.8s when agent finishes a turn
   const [happyFlash, setHappyFlash] = useState(false);
+  const happyFlashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [stopRequested, setStopRequested] = useState(false);
   const restartAfterStopRef = useRef(false);
 
-  // ── File attachments + drag-and-drop ─────────────────────────────────────────
+  // ── File attachments ───────────────────────────────────────────────────────
   const [attachments, setAttachments] = useState<{ name: string; path: string }[]>([]);
   const attachInputRef = useRef<HTMLInputElement>(null);
-  const [dragging, setDragging] = useState(false);
 
   // ── Stable refs for startSession deps — prevents identity change from re-firing effects ──
   const containerNameRef = useRef(containerName);
@@ -237,39 +268,10 @@ export function ChatPanel() {
         sessionActiveRef.current = false;
       }
       recognitionRef.current?.stop();
+      if (voiceInterimTimerRef.current) clearTimeout(voiceInterimTimerRef.current);
+      if (happyFlashTimerRef.current) clearTimeout(happyFlashTimerRef.current);
     };
   }, []);
-
-  // ── Drag-and-drop files into chat ────────────────────────────────────────────
-  useEffect(() => {
-    const sharedPath = runtimeHealth?.sharedPath?.replace(/\/$/, '') ?? '';
-    let unlisten: (() => void) | null = null;
-
-    getCurrentWebview().onDragDropEvent(async (event) => {
-      const payload = event.payload;
-      if (payload.type === 'enter') {
-        setDragging(true);
-      } else if (payload.type === 'leave') {
-        setDragging(false);
-      } else if (payload.type === 'drop') {
-        setDragging(false);
-        if (!sharedPath || payload.paths.length === 0) return;
-        useEphemeralStore.getState().setSuppressBlurCollapse(false);
-        for (const srcPath of payload.paths) {
-          const fileName = srcPath.split('/').pop() ?? srcPath.split('\\').pop() ?? 'file';
-          const destPath = `/workspace/${fileName}`;
-          try {
-            await copyFile(srcPath, `${sharedPath}/${fileName}`);
-            setAttachments((prev) => [...prev, { name: fileName, path: destPath }]);
-          } catch (err) {
-            console.error('Drop upload failed:', err);
-          }
-        }
-      }
-    }).then((fn) => { unlisten = fn; });
-
-    return () => { unlisten?.(); };
-  }, [runtimeHealth?.sharedPath]);
 
   // ── Pi event handling ───────────────────────────────────────────────────────
 
@@ -336,7 +338,8 @@ export function ChatPanel() {
           timestamp: Date.now(),
         });
         setHappyFlash(true);
-        setTimeout(() => setHappyFlash(false), 1800);
+        if (happyFlashTimerRef.current) clearTimeout(happyFlashTimerRef.current);
+        happyFlashTimerRef.current = setTimeout(() => setHappyFlash(false), 1800);
       }
 
       setStopRequested(false);
@@ -621,16 +624,6 @@ export function ChatPanel() {
 
   return (
     <div className="relative flex h-full min-h-0 flex-col">
-      {/* Drop overlay */}
-      {dragging && (
-        <div className="pointer-events-none absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 rounded-[inherit] border-2 border-dashed border-[#e85c2a]/50 bg-[rgba(232,92,42,0.06)]">
-          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" className="text-[#e85c2a]/70">
-            <path d="M12 2v13M7 8l5-6 5 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-            <path d="M3 15v4a2 2 0 002 2h14a2 2 0 002-2v-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-          </svg>
-          <span className="text-[12px] text-[#e85c2a]/70">Drop to attach</span>
-        </div>
-      )}
       {/* Status bar */}
       <div className="flex items-center gap-2 border-b border-white/6 px-4 py-2">
         <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${

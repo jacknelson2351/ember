@@ -46,10 +46,6 @@ export async function writeFileBytes(path: string, file: File): Promise<void> {
   await invoke('write_file_bytes', { path, dataBase64: base64 });
 }
 
-export async function copyFile(src: string, dest: string): Promise<void> {
-  await invoke('copy_file', { src, dest });
-}
-
 export async function deleteFile(path: string): Promise<void> {
   await invoke('delete_file', { path });
 }

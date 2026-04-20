@@ -1,4 +1,4 @@
-export type Panel = 'chat' | 'terminal' | 'thoughts' | 'files' | 'memory' | 'settings';
+export type Panel = 'chat' | 'files' | 'memory' | 'settings';
 
 export type ContainerStatus = 'running' | 'stopped' | 'starting' | 'stopping' | 'error';
 export type AgentStatus = 'idle' | 'running' | 'error';

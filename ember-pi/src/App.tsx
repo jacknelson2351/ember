@@ -2,13 +2,15 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { getCurrentWindow, LogicalPosition, LogicalSize } from '@tauri-apps/api/window';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
-import { useAppStore, useEphemeralStore } from './stores/appStore';
+import { useShallow } from 'zustand/react/shallow';
+import { useEphemeralStore, usePersistedStore } from './stores/appStore';
 import { ChatPanel } from './components/ChatPanel';
 import { FilesPanel } from './components/FilesPanel';
 import { MemoryPanel } from './components/MemoryPanel';
 import { SettingsPanel } from './components/SettingsPanel';
 import { CoalfireBrand } from './components/CoalfireBrand';
 import { getRuntimeHealth } from './services/container';
+import { loadProviderApiKey } from './services/secrets';
 import type { Panel } from './types';
 
 const PILL_HEIGHT = 58;
@@ -51,19 +53,52 @@ async function syncShellSize(width: number, height: number) {
 }
 
 export default function App() {
+  const { activePanel, setActivePanel, setContainerStatus, setRuntimeHealth } = useEphemeralStore(
+    useShallow((state) => ({
+      activePanel: state.activePanel,
+      setActivePanel: state.setActivePanel,
+      setContainerStatus: state.setContainerStatus,
+      setRuntimeHealth: state.setRuntimeHealth,
+    })),
+  );
+
   const {
-    activePanel,
-    setActivePanel,
     containerName,
-    setContainerStatus,
     appearance,
-    setRuntimeHealth,
-  } = useAppStore();
+    modelProvider,
+    setModelConfig,
+  } = usePersistedStore(
+    useShallow((state) => ({
+      containerName: state.containerName,
+      appearance: state.appearance,
+      modelProvider: state.modelConfig.provider,
+      setModelConfig: state.setModelConfig,
+    })),
+  );
 
   const [expanded, setExpanded] = useState(appearance.launchExpanded);
   const appearanceRef = useRef(appearance);
   appearanceRef.current = appearance;
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const resizeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingSizeRef = useRef<{ width: number; height: number } | null>(null);
+  const dragInProgressRef = useRef(false);
+
+  const flushQueuedShellSize = useCallback(() => {
+    if (dragInProgressRef.current || !pendingSizeRef.current) return;
+    const { width, height } = pendingSizeRef.current;
+    pendingSizeRef.current = null;
+    syncShellSize(width, height).catch(() => {});
+  }, []);
+
+  const queueShellSize = useCallback((width: number, height: number) => {
+    pendingSizeRef.current = { width, height };
+    if (resizeTimerRef.current) clearTimeout(resizeTimerRef.current);
+    resizeTimerRef.current = setTimeout(() => {
+      resizeTimerRef.current = null;
+      flushQueuedShellSize();
+    }, 120);
+  }, [flushQueuedShellSize]);
 
   const runToolbarAction = useCallback((event: React.MouseEvent | React.KeyboardEvent, action: () => void) => {
     event.preventDefault();
@@ -74,8 +109,15 @@ export default function App() {
   const startShellDrag = useCallback((event: React.MouseEvent | React.KeyboardEvent) => {
     event.preventDefault();
     event.stopPropagation();
-    getCurrentWindow().startDragging().catch(() => {});
-  }, []);
+    dragInProgressRef.current = true;
+    getCurrentWindow()
+      .startDragging()
+      .catch(() => {})
+      .finally(() => {
+        dragInProgressRef.current = false;
+        flushQueuedShellSize();
+      });
+  }, [flushQueuedShellSize]);
 
   const poll = useCallback(async () => {
     const health = await getRuntimeHealth(containerName);
@@ -92,12 +134,6 @@ export default function App() {
     setActivePanel(panel);
     setExpanded(true);
   }, [activePanel, expanded, setActivePanel]);
-
-  useEffect(() => {
-    if (activePanel === 'thoughts') {
-      setActivePanel('chat');
-    }
-  }, [activePanel, setActivePanel]);
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
@@ -131,16 +167,44 @@ export default function App() {
       ? PILL_HEIGHT + PANEL_GAP + appearance.panelHeight + BOTTOM_MARGIN
       : COLLAPSED_WINDOW_HEIGHT;
 
-    syncShellSize(appearance.toolbarWidth, height).catch(() => {});
-  }, [appearance.panelHeight, appearance.toolbarWidth, expanded]);
+    queueShellSize(appearance.toolbarWidth, height);
+  }, [appearance.panelHeight, appearance.toolbarWidth, expanded, queueShellSize]);
 
   useEffect(() => {
-    poll();
-    pollRef.current = setInterval(poll, 8000);
+    let cancelled = false;
+
+    const run = async () => {
+      await poll();
+      if (!cancelled) {
+        pollTimerRef.current = setTimeout(run, 8000);
+      }
+    };
+
+    run();
+
     return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
+      cancelled = true;
+      if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
     };
   }, [poll]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    loadProviderApiKey(modelProvider)
+      .then((apiKey) => {
+        if (cancelled) return;
+        const current = usePersistedStore.getState().modelConfig;
+        if (current.provider !== modelProvider) return;
+        if ((current.apiKey ?? '') === apiKey) return;
+        setModelConfig({ ...current, apiKey: apiKey || undefined });
+      })
+      .catch(() => {});
+
+    return () => {
+      cancelled = true;
+    };
+  }, [modelProvider, setModelConfig]);
 
   // Collapse panel when window loses focus — but not if a native dialog (e.g. file picker) is open.
   // When focus returns, always clear the suppress flag so it doesn't get stuck.
@@ -157,6 +221,10 @@ export default function App() {
       }
     }).then((fn) => { unlisten = fn; });
     return () => { unlisten?.(); };
+  }, []);
+
+  useEffect(() => () => {
+    if (resizeTimerRef.current) clearTimeout(resizeTimerRef.current);
   }, []);
 
   return (
@@ -240,7 +308,7 @@ export default function App() {
         {expanded && (
           <main className="mt-3 flex min-h-0 w-full flex-1 overflow-hidden rounded-[28px] border border-white/10 bg-[#0a0f19] shadow-[0_28px_80px_rgba(0,0,0,0.5)]">
             <div className="h-full min-h-0 w-full">
-              {(activePanel === 'chat' || activePanel === 'thoughts') && <ChatPanel />}
+              {activePanel === 'chat' && <ChatPanel />}
               {activePanel === 'files' && <FilesPanel />}
               {activePanel === 'memory' && <MemoryPanel />}
               {activePanel === 'settings' && <SettingsPanel />}

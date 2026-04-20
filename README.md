@@ -18,7 +18,7 @@ npm install
 npx tauri dev
 ```
 
-Once the app opens, go to **Settings > Model** to pick your provider and enter your API key.
+Once the app opens, go to **Settings > Model** to pick your provider and enter your API key. Ember stores provider keys in the macOS Keychain rather than local browser storage.
 
 ## Project Structure
 
