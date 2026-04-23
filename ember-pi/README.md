@@ -1,15 +1,28 @@
 # Coalfire Ember
 
-Coalfire Ember is a macOS-first Tauri desktop toolbar for security-oriented AI workflows. The current shell is a centered floating pill that expands into a single panel workspace for chat, files, memory, and settings.
+Coalfire Ember is a macOS-first Tauri desktop toolbar for security-oriented AI workflows. The current shell is a centered floating pill that expands into a single panel workspace for chat, files, instructions, and settings.
 
 ## Current UI Model
 
 - The app opens as a centered floating pill near the top of the screen.
 - Click the Coalfire logo or `Ask` to open chat.
-- Click `Files`, `Memory`, or `Settings` to open those panels.
+- Click `Files`, `Instructions`, or `Settings` to open those panels.
 - Use the left drag handle to move the pill.
 - Use the chevron to collapse the active panel.
 - Use `×` to quit the app.
+
+## Chat
+
+- Chat runs against the Pi-based runtime inside the Docker container.
+- Use the paperclip button to attach files, or drag and drop files directly into the chat panel.
+- Attached files are copied into `/workspace` before the message is sent, and Ember is prompted to read them from there.
+
+## Instructions
+
+- `Base Instructions` are always applied and synced into `/workspace/.pi/APPEND_SYSTEM.md`.
+- `Notes` are short project reminders that can be included or excluded from Pi context.
+- `Skills` are reusable Pi-managed workflows synced into `/workspace/.pi/skills/ember-managed/`.
+- `Generated Pi Files` is an advanced preview of the files Ember writes for Pi automatically.
 
 ## Model Providers
 
