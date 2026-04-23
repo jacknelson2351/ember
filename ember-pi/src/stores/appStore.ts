@@ -56,6 +56,9 @@ interface PersistedState {
   containerName: string;
   setContainerName: (n: string) => void;
 
+  autoStartRuntime: boolean;
+  setAutoStartRuntime: (enabled: boolean) => void;
+
   workspacePath: string;
   setWorkspacePath: (p: string) => void;
 
@@ -90,6 +93,7 @@ export const usePersistedStore = create<PersistedState>()(
         {
           id: '1',
           name: 'recon',
+          description: 'Run passive reconnaissance on a target or workspace.',
           content: '# Recon Skill\n\nRun passive reconnaissance on a target.\n\n## Steps\n1. whois lookup\n2. dns enumeration\n3. port scan',
           enabled: true,
           createdAt: Date.now(),
@@ -97,6 +101,7 @@ export const usePersistedStore = create<PersistedState>()(
         {
           id: '2',
           name: 'report',
+          description: 'Generate a findings report with evidence and remediation guidance.',
           content: '# Report Skill\n\nGenerate a findings report.\n\n## Template\n- Finding\n- Severity\n- Evidence\n- Recommendation',
           enabled: false,
           createdAt: Date.now(),
@@ -121,6 +126,9 @@ export const usePersistedStore = create<PersistedState>()(
       containerName: 'ember-pi-runtime',
       setContainerName: (containerName) => set({ containerName }),
 
+      autoStartRuntime: true,
+      setAutoStartRuntime: (autoStartRuntime) => set({ autoStartRuntime }),
+
       workspacePath: '/workspace',
       setWorkspacePath: (workspacePath) => set({ workspacePath }),
 
@@ -138,7 +146,7 @@ export const usePersistedStore = create<PersistedState>()(
     }),
     {
       name: 'ember-pi-persist',
-      version: 3,
+      version: 4,
       partialize: (state) => ({
         ...state,
         modelConfig: {
@@ -168,6 +176,9 @@ export const usePersistedStore = create<PersistedState>()(
           const modelConfig = (s.modelConfig as Record<string, unknown> | undefined) ?? {};
           delete modelConfig.apiKey;
           s.modelConfig = modelConfig;
+        }
+        if (fromVersion < 4 && s.autoStartRuntime === undefined) {
+          s.autoStartRuntime = true;
         }
         return s as unknown as PersistedState;
       },

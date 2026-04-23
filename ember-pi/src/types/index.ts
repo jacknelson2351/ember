@@ -44,6 +44,7 @@ export interface Note {
 export interface Skill {
   id: string;
   name: string;
+  description?: string;
   content: string;
   enabled: boolean;
   createdAt: number;

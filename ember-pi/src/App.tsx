@@ -9,7 +9,7 @@ import { FilesPanel } from './components/FilesPanel';
 import { MemoryPanel } from './components/MemoryPanel';
 import { SettingsPanel } from './components/SettingsPanel';
 import { CoalfireBrand } from './components/CoalfireBrand';
-import { getRuntimeHealth } from './services/container';
+import { getRuntimeHealth, startContainer } from './services/container';
 import { loadProviderApiKey } from './services/secrets';
 import type { Panel } from './types';
 
@@ -28,7 +28,7 @@ const PANEL_KEYS: Record<string, Panel> = {
 const PANEL_ITEMS: { id: Panel; title: string; icon: React.ReactNode }[] = [
   { id: 'chat', title: 'Chat', icon: <ChatIcon /> },
   { id: 'files', title: 'Files', icon: <FilesIcon /> },
-  { id: 'memory', title: 'Memory', icon: <MemoryIcon /> },
+  { id: 'memory', title: 'Instructions', icon: <MemoryIcon /> },
   { id: 'settings', title: 'Settings', icon: <SettingsIcon /> },
 ];
 
@@ -53,12 +53,13 @@ async function syncShellSize(width: number, height: number) {
 }
 
 export default function App() {
-  const { activePanel, setActivePanel, setContainerStatus, setRuntimeHealth } = useEphemeralStore(
+  const { activePanel, setActivePanel, setContainerStatus, setRuntimeHealth, runtimeHealth } = useEphemeralStore(
     useShallow((state) => ({
       activePanel: state.activePanel,
       setActivePanel: state.setActivePanel,
       setContainerStatus: state.setContainerStatus,
       setRuntimeHealth: state.setRuntimeHealth,
+      runtimeHealth: state.runtimeHealth,
     })),
   );
 
@@ -66,12 +67,14 @@ export default function App() {
     containerName,
     appearance,
     modelProvider,
+    autoStartRuntime,
     setModelConfig,
   } = usePersistedStore(
     useShallow((state) => ({
       containerName: state.containerName,
       appearance: state.appearance,
       modelProvider: state.modelConfig.provider,
+      autoStartRuntime: state.autoStartRuntime,
       setModelConfig: state.setModelConfig,
     })),
   );
@@ -83,6 +86,7 @@ export default function App() {
   const resizeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingSizeRef = useRef<{ width: number; height: number } | null>(null);
   const dragInProgressRef = useRef(false);
+  const autoStartAttemptedRef = useRef(false);
 
   const flushQueuedShellSize = useCallback(() => {
     if (dragInProgressRef.current || !pendingSizeRef.current) return;
@@ -205,6 +209,44 @@ export default function App() {
       cancelled = true;
     };
   }, [modelProvider, setModelConfig]);
+
+  useEffect(() => {
+    autoStartAttemptedRef.current = false;
+  }, [containerName]);
+
+  useEffect(() => {
+    if (!autoStartRuntime || autoStartAttemptedRef.current || !runtimeHealth) return;
+    if (runtimeHealth.dockerStatus !== 'ready') return;
+    if (runtimeHealth.containerStatus === 'running' || runtimeHealth.containerStatus === 'starting') return;
+
+    autoStartAttemptedRef.current = true;
+    setContainerStatus('starting');
+
+    startContainer(containerName)
+      .then((health) => {
+        setRuntimeHealth(health);
+        setContainerStatus(health.containerStatus);
+      })
+      .catch((error) => {
+        setContainerStatus('error');
+        setRuntimeHealth({
+          ...(runtimeHealth ?? {
+            dockerStatus: 'error',
+            containerStatus: 'error',
+            containerExists: false,
+            imageExists: false,
+            imageTag: 'coalfire-ember-runtime:latest',
+            containerName,
+            sharedPath: '',
+            configPath: '',
+            memoryPath: '',
+            message: '',
+          }),
+          containerStatus: 'error',
+          message: String(error),
+        });
+      });
+  }, [autoStartRuntime, containerName, runtimeHealth, setContainerStatus, setRuntimeHealth]);
 
   // Collapse panel when window loses focus — but not if a native dialog (e.g. file picker) is open.
   // When focus returns, always clear the suppress flag so it doesn't get stuck.

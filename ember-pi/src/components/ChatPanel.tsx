@@ -5,6 +5,7 @@ import { revealItemInDir } from '@tauri-apps/plugin-opener';
 import { useShallow } from 'zustand/react/shallow';
 import { useEphemeralStore, usePersistedStore } from '../stores/appStore';
 import { writeFileBytes } from '../services/files';
+import { startContainer } from '../services/container';
 import { EmberBuddy } from './EmberBuddy';
 import {
   startPiSession,
@@ -15,14 +16,10 @@ import {
   onPiStderr,
   type PiEvent,
 } from '../services/pi';
-import type { ChatMessage, OutputLine, ToolCall } from '../types';
-import { buildEffectivePrompt } from '../utils/buildPrompt';
-
-const QUICK_PROMPTS = [
-  'List the files in the current workspace.',
-  'What tools are available in this environment?',
-  'Run a quick system info check.',
-];
+import { syncPiProjectContext } from '../services/piProject';
+import type { ChatMessage, ToolCall } from '../types';
+import { buildPiAppendSystemPrompt, buildQuickPrompts } from '../utils/buildPrompt';
+import { initialTurnState, reduceTurnEvent, type TurnState } from '../services/agentReducer';
 
 export function ChatPanel() {
   const {
@@ -35,6 +32,9 @@ export function ChatPanel() {
     agentStatus,
     setAgentStatus,
     containerStatus,
+    setContainerStatus,
+    setRuntimeHealth,
+    setActivePanel,
     addSessionEvent,
     upsertThoughtLine,
     runtimeHealth,
@@ -48,6 +48,9 @@ export function ChatPanel() {
     agentStatus: state.agentStatus,
     setAgentStatus: state.setAgentStatus,
     containerStatus: state.containerStatus,
+    setContainerStatus: state.setContainerStatus,
+    setRuntimeHealth: state.setRuntimeHealth,
+    setActivePanel: state.setActivePanel,
     addSessionEvent: state.addSessionEvent,
     upsertThoughtLine: state.upsertThoughtLine,
     runtimeHealth: state.runtimeHealth,
@@ -160,25 +163,71 @@ export function ChatPanel() {
   modelConfigRef.current = modelConfig;
   const containerStatusRef = useRef(containerStatus);
   containerStatusRef.current = containerStatus;
+  const runtimeHealthRef = useRef(runtimeHealth);
+  runtimeHealthRef.current = runtimeHealth;
+  const contextRef = useRef({ systemPrompt, memoryMode, notes, skills });
+  contextRef.current = { systemPrompt, memoryMode, notes, skills };
+  const contextSignatureRef = useRef('');
+  contextSignatureRef.current = JSON.stringify({
+    sharedPath: runtimeHealth?.sharedPath ?? '',
+    systemPrompt,
+    memoryMode,
+    notes: notes.map((note) => ({
+      id: note.id,
+      content: note.content,
+      pinned: note.pinned,
+    })),
+    skills: skills.map((skill) => ({
+      id: skill.id,
+      name: skill.name,
+      description: skill.description ?? '',
+      content: skill.content,
+      enabled: skill.enabled,
+    })),
+  });
+  const syncedContextSignatureRef = useRef('');
+  const sessionContextSignatureRef = useRef('');
+  const contextSyncPromiseRef = useRef<Promise<void> | null>(null);
+  const syncingContextSignatureRef = useRef<string | null>(null);
 
-  /** Build effective system prompt — base + memory-injected notes + enabled skills */
-  const buildSystemPrompt = useCallback((): string => {
-    return buildEffectivePrompt({ systemPrompt, memoryMode, notes, skills });
-  }, [memoryMode, notes, skills, systemPrompt]);
+  const buildFallbackSystemPrompt = useCallback((): string => {
+    if (runtimeHealthRef.current?.sharedPath?.trim()) return '';
+    return buildPiAppendSystemPrompt(contextRef.current);
+  }, []);
+  const buildFallbackSystemPromptRef = useRef(buildFallbackSystemPrompt);
+  buildFallbackSystemPromptRef.current = buildFallbackSystemPrompt;
 
-  // Must be declared after buildSystemPrompt
-  const buildSystemPromptRef = useRef(buildSystemPrompt);
-  buildSystemPromptRef.current = buildSystemPrompt;
+  const syncNativePiContext = useCallback(async () => {
+    const sharedPath = runtimeHealthRef.current?.sharedPath?.trim() ?? '';
+    if (!sharedPath) return;
+    const signature = contextSignatureRef.current;
+    if (syncedContextSignatureRef.current === signature) return;
+    if (
+      contextSyncPromiseRef.current &&
+      syncingContextSignatureRef.current === signature
+    ) {
+      await contextSyncPromiseRef.current;
+      return;
+    }
 
-  // Accumulation state for the in-progress agent message
-  const accText = useRef('');
-  const accThought = useRef('');
-  const accTools = useRef<ToolCall[]>([]);
-  const activeToolId = useRef<string | null>(null); // tool being streamed
-  const execOutputs = useRef<Record<string, string>>({}); // toolcallId → output
-  const activeThoughtId = useRef<string | null>(null);
-  const activeThoughtTimestamp = useRef<number | null>(null);
-  const thinkingActive = useRef(false);
+    syncingContextSignatureRef.current = signature;
+    const syncPromise = syncPiProjectContext(sharedPath, contextRef.current)
+      .then(() => {
+        syncedContextSignatureRef.current = signature;
+      })
+      .finally(() => {
+        if (syncingContextSignatureRef.current === signature) {
+          syncingContextSignatureRef.current = null;
+        }
+        if (contextSyncPromiseRef.current === syncPromise) {
+          contextSyncPromiseRef.current = null;
+        }
+      });
+
+    contextSyncPromiseRef.current = syncPromise;
+    await syncPromise;
+  }, []);
+
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -205,8 +254,16 @@ export function ChatPanel() {
     sessionActiveRef.current = true;
     setPiStatus('starting');
     setStderrLines([]);
-    const promise = startPiSession(containerNameRef.current, modelConfigRef.current, buildSystemPromptRef.current())
+    const promise = syncNativePiContext()
+      .then(() =>
+        startPiSession(
+          containerNameRef.current,
+          modelConfigRef.current,
+          buildFallbackSystemPromptRef.current() || undefined,
+        ),
+      )
       .then(() => {
+        sessionContextSignatureRef.current = contextSignatureRef.current;
         setPiStatus('ready');
       })
       .catch((e: unknown) => {
@@ -226,7 +283,7 @@ export function ChatPanel() {
     sessionStartPromise.current = promise;
     await promise;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [addMessage]); // stable — volatile deps read via refs above
+  }, [addMessage, syncNativePiContext]); // stable — volatile deps read via refs above
 
   // Start pi when Docker container comes online
   // NOTE: Do NOT reset sessionActiveRef here — startSession guards itself.
@@ -260,6 +317,37 @@ export function ChatPanel() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [modelConfig]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    const syncContext = async () => {
+      try {
+        await syncNativePiContext();
+      } catch {
+        return;
+      }
+
+      if (cancelled) return;
+      if (sessionStartPromise.current) return;
+      if (!sessionActiveRef.current) return;
+      if (containerStatusRef.current !== 'running') return;
+      if (agentStatus === 'running') return;
+      if (sessionContextSignatureRef.current === contextSignatureRef.current) return;
+
+      sessionActiveRef.current = false;
+      await stopPiSession().catch(() => {});
+      if (!cancelled) {
+        await startSession().catch(() => {});
+      }
+    };
+
+    void syncContext();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [agentStatus, memoryMode, notes, runtimeHealth?.sharedPath, skills, startSession, syncNativePiContext, systemPrompt]);
+
   // Tear down on unmount
   useEffect(() => {
     return () => {
@@ -276,72 +364,44 @@ export function ChatPanel() {
   // ── Pi event handling ───────────────────────────────────────────────────────
 
   useEffect(() => {
+    let turn = initialTurnState();
     let turnClosed = false;
 
-    const resetAccum = () => {
-      turnClosed = false;
-      accText.current = '';
-      accThought.current = '';
-      accTools.current = [];
-      activeToolId.current = null;
-      activeThoughtId.current = null;
-      activeThoughtTimestamp.current = null;
-      execOutputs.current = {};
-      thinkingActive.current = false;
+    const syncThought = (content: string, id: string, timestamp: number) => {
+      if (!content.trim()) return;
+      upsertThoughtLine({ id, type: 'thought', content: content.trim(), timestamp });
     };
 
-    const syncThoughtLine = (nextContent?: string | null) => {
-      const content = (nextContent ?? accThought.current).trim();
-      if (!content) return;
-
-      const id = activeThoughtId.current ?? crypto.randomUUID();
-      const timestamp = activeThoughtTimestamp.current ?? Date.now();
-      activeThoughtId.current = id;
-      activeThoughtTimestamp.current = timestamp;
-
-      const line: OutputLine = {
-        id,
-        type: 'thought',
-        content,
-        timestamp,
-      };
-      upsertThoughtLine(line);
-    };
-
-    const buildAssistantMessageState = (streaming: boolean) => {
-      const inline = parseContent(accText.current);
-      const mergedThought = mergeThoughtContent(accThought.current, inline.thought);
+    const buildPatch = (t: TurnState, streaming: boolean) => {
+      const inline = parseContent(t.text);
+      const thought = mergeThoughtContent(t.thought, inline.thought);
       return {
-        content: inline.hasThought ? inline.response : accText.current,
-        thought: mergedThought ?? '',
-        thoughtStreaming: streaming && (thinkingActive.current || inline.thoughtStreaming),
+        content: inline.hasThought ? inline.response : t.text,
+        thought: thought ?? '',
+        thoughtStreaming: streaming && (t.thinkingActive || inline.thoughtStreaming),
         streaming,
-        toolCalls: [...accTools.current],
+        toolCalls: [...t.tools],
       };
     };
 
-    const finalizeTurn = () => {
+    const pushUpdate = (t: TurnState, streaming: boolean) => {
+      const patch = buildPatch(t, streaming);
+      if (patch.thought) syncThought(patch.thought, t.thoughtId, t.thoughtTimestamp);
+      updateLastMessage(patch);
+    };
+
+    const finalize = (t: TurnState) => {
       if (turnClosed) return;
       turnClosed = true;
-      thinkingActive.current = false;
-
-      const finalMessage = buildAssistantMessageState(false);
-      if (finalMessage.thought) syncThoughtLine(finalMessage.thought);
-      updateLastMessage(finalMessage);
-
-      const hasContent = Boolean(finalMessage.content.trim() || finalMessage.thought.trim());
-      if (hasContent) {
-        addSessionEvent({
-          id: crypto.randomUUID(),
-          type: 'agent',
-          content: finalMessage.content,
-          timestamp: Date.now(),
-        });
+      const patch = buildPatch(t, false);
+      if (patch.thought) syncThought(patch.thought, t.thoughtId, t.thoughtTimestamp);
+      updateLastMessage(patch);
+      if (patch.content.trim() || patch.thought.trim()) {
+        addSessionEvent({ id: crypto.randomUUID(), type: 'agent', content: patch.content, timestamp: Date.now() });
         setHappyFlash(true);
         if (happyFlashTimerRef.current) clearTimeout(happyFlashTimerRef.current);
         happyFlashTimerRef.current = setTimeout(() => setHappyFlash(false), 1800);
       }
-
       setStopRequested(false);
       setAgentStatus('idle');
       setPiStatus('ready');
@@ -353,138 +413,23 @@ export function ChatPanel() {
     let active = true;
 
     const unlistenEvent = onPiEvent((ev: PiEvent) => {
-      switch (ev.type) {
-        case 'agent_start': {
-          resetAccum();
-          setStopRequested(false);
-          // Guard: skip if there's already a streaming agent bubble (duplicate pi process)
-          const currentMsgs = useEphemeralStore.getState().messages;
-          const lastMsg = currentMsgs[currentMsgs.length - 1];
-          if (lastMsg?.role === 'agent' && lastMsg.streaming) break;
-          addMessage({
-            id: crypto.randomUUID(),
-            role: 'agent',
-            content: '',
-            thought: '',
-            thoughtStreaming: false,
-            timestamp: Date.now(),
-            streaming: true,
-            toolCalls: [],
-          });
-          setAgentStatus('running');
-          break;
-        }
-
-        case 'message_update': {
-          const d = ev.assistantMessageEvent;
-          if (!d) break;
-
-          if (d.type === 'thinking_start') {
-            thinkingActive.current = true;
-            const nextMessage = buildAssistantMessageState(true);
-            if (nextMessage.thought) syncThoughtLine(nextMessage.thought);
-            updateLastMessage(nextMessage);
-          } else if (d.type === 'text_delta' && d.delta) {
-            accText.current += d.delta;
-            const nextMessage = buildAssistantMessageState(true);
-            if (nextMessage.thought) syncThoughtLine(nextMessage.thought);
-            updateLastMessage(nextMessage);
-          } else if (d.type === 'thinking_delta' && d.delta) {
-            thinkingActive.current = true;
-            accThought.current += d.delta;
-            const nextMessage = buildAssistantMessageState(true);
-            if (nextMessage.thought) syncThoughtLine(nextMessage.thought);
-            updateLastMessage(nextMessage);
-          } else if (d.type === 'thinking_end') {
-            thinkingActive.current = false;
-            const nextMessage = buildAssistantMessageState(true);
-            if (nextMessage.thought) syncThoughtLine(nextMessage.thought);
-            updateLastMessage(nextMessage);
-          } else if (d.type === 'text_end') {
-            const nextMessage = buildAssistantMessageState(true);
-            if (nextMessage.thought) syncThoughtLine(nextMessage.thought);
-            updateLastMessage(nextMessage);
-          } else if (d.type === 'toolcall_end' && d.toolCall) {
-            // Full tool call info available at toolcall_end
-            const tc: ToolCall = {
-              id: d.toolCall.id,
-              name: d.toolCall.name,
-              args: d.toolCall.arguments ?? {},
-              running: true,
-            };
-            accTools.current = [...accTools.current, tc];
-            activeToolId.current = d.toolCall.id;
-            updateLastMessage({ toolCalls: [...accTools.current] });
-          } else if (d.type === 'done') {
-            finalizeTurn();
-          }
-          break;
-        }
-
-        case 'tool_execution_start': {
-          // Pi confirmed the tool is executing — update or create the tool call entry
-          const id = ev.toolCallId ?? activeToolId.current ?? '';
-          const existing = accTools.current.find((tc) => tc.id === id);
-          if (existing) {
-            accTools.current = accTools.current.map((tc) =>
-              tc.id === id
-                ? { ...tc, name: ev.toolName ?? tc.name, args: ev.args ?? tc.args, running: true }
-                : tc,
-            );
-          } else {
-            // Tool call wasn't created during message streaming — create it now
-            accTools.current = [
-              ...accTools.current,
-              { id, name: ev.toolName ?? '…', args: ev.args ?? {}, running: true },
-            ];
-          }
-          execOutputs.current[id] = '';
-          updateLastMessage({ toolCalls: [...accTools.current] });
-          break;
-        }
-
-        case 'tool_execution_update': {
-          const id = ev.toolCallId ?? '';
-          if (id) {
-            const chunk = typeof ev.partialResult === 'string'
-              ? ev.partialResult
-              : JSON.stringify(ev.partialResult ?? '');
-            execOutputs.current[id] = (execOutputs.current[id] ?? '') + chunk;
-            accTools.current = accTools.current.map((tc) =>
-              tc.id === id ? { ...tc, result: execOutputs.current[id] } : tc,
-            );
-            updateLastMessage({ toolCalls: [...accTools.current] });
-          }
-          break;
-        }
-
-        case 'tool_execution_end': {
-          const id = ev.toolCallId ?? '';
-          const finalResult = typeof ev.result === 'string'
-            ? ev.result
-            : JSON.stringify(ev.result ?? '');
-          accTools.current = accTools.current.map((tc) =>
-            tc.id === id
-              ? {
-                  ...tc,
-                  result: finalResult || execOutputs.current[id] || '',
-                  error: ev.isError === true,
-                  running: false,
-                }
-              : tc,
-          );
-          updateLastMessage({ toolCalls: [...accTools.current] });
-          break;
-        }
-
-        case 'agent_end': {
-          finalizeTurn();
-          break;
-        }
-
-        default:
-          break;
+      if (ev.type === 'agent_start') {
+        turn = initialTurnState();
+        turnClosed = false;
+        setStopRequested(false);
+        const msgs = useEphemeralStore.getState().messages;
+        const last = msgs[msgs.length - 1];
+        if (last?.role === 'agent' && last.streaming) return;
+        addMessage({ id: crypto.randomUUID(), role: 'agent', content: '', thought: '', thoughtStreaming: false, timestamp: Date.now(), streaming: true, toolCalls: [] });
+        setAgentStatus('running');
+        return;
       }
+      if (ev.type === 'agent_end' || (ev.type === 'message_update' && ev.assistantMessageEvent?.type === 'done')) {
+        finalize(turn);
+        return;
+      }
+      turn = reduceTurnEvent(turn, ev);
+      pushUpdate(turn, true);
     });
 
     unlistenEvent.then((fn) => { if (!active) fn(); else unlistenEventFn = fn; });
@@ -506,7 +451,7 @@ export function ChatPanel() {
     unlistenEnded.then((fn) => { if (!active) fn(); else unlistenEndedFn = fn; });
 
     const unlistenStderr = onPiStderr((line: string) => {
-      setStderrLines((prev) => [...prev.slice(-49), line]); // keep last 50 lines
+      setStderrLines((prev) => [...prev.slice(-49), line]);
     });
     unlistenStderr.then((fn) => { if (!active) fn(); else unlistenStderrFn = fn; });
 
@@ -539,9 +484,48 @@ export function ChatPanel() {
     e.target.value = '';
   };
 
+  const ensureRuntimeReady = useCallback(async () => {
+    if (containerStatusRef.current === 'running') return true;
+
+    setContainerStatus('starting');
+    setPiStatus('starting');
+    try {
+      const health = await startContainer(containerNameRef.current);
+      setRuntimeHealth(health);
+      setContainerStatus(health.containerStatus);
+      return health.containerStatus === 'running';
+    } catch (error) {
+      const message = String(error);
+      setContainerStatus('error');
+      setPiStatus('error');
+      setRuntimeHealth((runtimeHealth ?? {
+        dockerStatus: 'error',
+        containerStatus: 'error',
+        containerExists: false,
+        imageExists: false,
+        imageTag: 'coalfire-ember-runtime:latest',
+        containerName: containerNameRef.current,
+        sharedPath: '',
+        configPath: '',
+        memoryPath: '',
+        message,
+      }));
+      addMessage({
+        id: crypto.randomUUID(),
+        role: 'agent',
+        content: `Runtime startup failed: ${message}`,
+        timestamp: Date.now(),
+      });
+      return false;
+    }
+  }, [addMessage, runtimeHealth, setContainerStatus, setRuntimeHealth]);
+
   const send = useCallback(async () => {
     const text = inputValue.trim();
     if ((!text && attachments.length === 0) || agentStatus === 'running') return;
+
+    const runtimeReady = await ensureRuntimeReady();
+    if (!runtimeReady) return;
 
     // If pi is still starting, wait for it
     if (sessionStartPromise.current) {
@@ -587,7 +571,7 @@ export function ChatPanel() {
       });
       setAgentStatus('idle');
     }
-  }, [addMessage, addSessionEvent, agentStatus, attachments, inputValue, setAgentStatus, setInputValue, startSession]);
+  }, [addMessage, addSessionEvent, agentStatus, attachments, ensureRuntimeReady, inputValue, setAgentStatus, setInputValue, startSession]);
 
   const stopRun = useCallback(async () => {
     if (agentStatus !== 'running' || stopRequested) return;
@@ -621,6 +605,23 @@ export function ChatPanel() {
   const canStop = agentStatus === 'running' && !stopRequested;
   const isRunning = agentStatus === 'running';
   const sharedPath = runtimeHealth?.sharedPath ?? '';
+  const dockerStatus = runtimeHealth?.dockerStatus ?? 'checking';
+  const runtimeMessage = runtimeHealth?.message ?? 'Checking Docker runtime…';
+  const runtimeStartLabel =
+    runtimeHealth && (runtimeHealth.imageExists || runtimeHealth.containerExists)
+      ? 'Start runtime'
+      : 'Build & start runtime';
+  const canStartRuntime = dockerStatus === 'ready' && containerStatus !== 'starting' && !isRunning;
+  const quickPrompts = buildQuickPrompts({ systemPrompt, memoryMode, notes, skills });
+  const placeholder = voiceActive
+    ? 'Listening…'
+    : isRunning
+      ? 'Working…'
+      : containerStatus === 'running'
+        ? 'Ask Ember…'
+        : dockerStatus === 'ready'
+          ? 'Ask Ember… Docker will start automatically'
+          : 'Ask Ember…';
 
   return (
     <div className="relative flex h-full min-h-0 flex-col">
@@ -687,16 +688,36 @@ export function ChatPanel() {
               pixelScale={4}
             />
             {containerStatus !== 'running' ? (
-              <p className="text-[11px] text-amber-500/70 text-center">
-                Docker offline — start the runtime in Settings.
-              </p>
+              <div className="w-full max-w-[480px] rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-4">
+                <p className="text-[12px] font-medium text-slate-200">
+                  {containerStatus === 'starting' ? 'Starting Docker runtime…' : 'Runtime not ready yet'}
+                </p>
+                <p className="mt-1 text-[11px] leading-5 text-slate-500">
+                  {runtimeMessage}
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    onClick={() => { void ensureRuntimeReady(); }}
+                    disabled={!canStartRuntime}
+                    className="rounded-full bg-[var(--ember-orange)] px-4 py-1.5 text-[11px] font-medium text-white transition hover:bg-[var(--ember-orange-strong)] disabled:opacity-30"
+                  >
+                    {containerStatus === 'starting' ? 'Starting…' : runtimeStartLabel}
+                  </button>
+                  <button
+                    onClick={() => setActivePanel('settings')}
+                    className="rounded-full border border-white/10 bg-white/[0.04] px-4 py-1.5 text-[11px] font-medium text-slate-300 transition hover:bg-white/[0.07]"
+                  >
+                    Open runtime settings
+                  </button>
+                </div>
+              </div>
             ) : (
               <p className="text-[12px] text-slate-500 text-center leading-relaxed">
                 {piStatus === 'starting' ? 'Starting up…' : 'Ask me anything.'}
               </p>
             )}
             <div className="w-full space-y-1">
-              {QUICK_PROMPTS.map((p) => (
+              {quickPrompts.map((p) => (
                 <button
                   key={p}
                   onClick={() => setInputValue(p)}
@@ -876,7 +897,7 @@ export function ChatPanel() {
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
             onKeyDown={onInputKeyDown}
-            placeholder={voiceActive ? 'Listening…' : isRunning ? 'Working…' : 'Ask Ember…'}
+            placeholder={placeholder}
             disabled={isRunning}
             rows={1}
             className="min-h-[22px] max-h-32 flex-1 resize-none bg-transparent text-[13px] leading-[1.65] text-white outline-none placeholder:text-slate-500 disabled:cursor-not-allowed"

@@ -1,62 +1,80 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { usePersistedStore } from '../stores/appStore';
 import { useShallow } from 'zustand/react/shallow';
-import { buildEffectivePrompt } from '../utils/buildPrompt';
+import { buildPiAppendSystemPrompt, buildPiManagedSkills } from '../utils/buildPrompt';
+
+type SkillDraft = {
+  name: string;
+  description: string;
+  content: string;
+};
+
+const EMPTY_SKILL_DRAFT: SkillDraft = {
+  name: '',
+  description: '',
+  content: '',
+};
 
 export function MemoryPanel() {
   const { memoryMode, setMemoryMode } = usePersistedStore(useShallow((state) => ({
     memoryMode: state.memoryMode,
     setMemoryMode: state.setMemoryMode,
   })));
-  const injecting = memoryMode !== 'off';
+  const extrasEnabled = memoryMode !== 'off';
 
   return (
-    <div className="flex flex-col h-full">
-      {/* Header */}
-      <div className="px-4 py-2.5 border-b border-[#1e1e1e] flex items-center justify-between flex-shrink-0">
-        <span className="text-[11px] text-[#6b6b6b] uppercase tracking-widest">Knowledge</span>
-        <button
-          onClick={() => setMemoryMode(injecting ? 'off' : 'minimal')}
-          className={`flex items-center gap-2 rounded-full px-3 py-1 text-[11px] transition border ${
-            injecting
-              ? 'border-[rgba(232,92,42,0.4)] bg-[rgba(232,92,42,0.1)] text-[#e85c2a]'
-              : 'border-white/10 bg-white/[0.02] text-[#4a4a4a] hover:text-[#6b6b6b]'
-          }`}
-          title={injecting ? 'Ember reads these notes — click to disable' : 'Memory is off — click to enable'}
-        >
-          <span className={`w-1.5 h-1.5 rounded-full ${injecting ? 'bg-[#e85c2a]' : 'bg-[#3a3a3a]'}`} />
-          {injecting ? 'Active' : 'Off'}
-        </button>
-      </div>
-
-      {/* Scrollable body */}
-      <div className="flex-1 min-h-0 overflow-y-auto">
-        <SystemPromptSection />
-        <div className={`transition-opacity ${injecting ? '' : 'opacity-40 pointer-events-none'}`}>
-          <KnowledgeSection />
-          <SkillsSection />
+    <div className="flex h-full flex-col">
+      <div className="border-b border-[#1e1e1e] px-4 py-2.5">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <span className="text-[11px] uppercase tracking-widest text-[#6b6b6b]">Instructions</span>
+            <p className="mt-1 text-[11px] leading-5 text-[#3f3f3f]">
+              Base instructions always apply. Notes and skills are optional project context synced for Pi.
+            </p>
+          </div>
+          <button
+            onClick={() => setMemoryMode(extrasEnabled ? 'off' : 'minimal')}
+            className={`shrink-0 rounded-full border px-3 py-1 text-[11px] transition ${
+              extrasEnabled
+                ? 'border-[rgba(232,92,42,0.4)] bg-[rgba(232,92,42,0.1)] text-[#e85c2a]'
+                : 'border-white/10 bg-white/[0.02] text-[#4a4a4a] hover:text-[#6b6b6b]'
+            }`}
+            title={
+              extrasEnabled
+                ? 'Project notes and skills are enabled'
+                : 'Project notes and skills are disabled'
+            }
+          >
+            {extrasEnabled ? 'Notes & Skills On' : 'Notes & Skills Off'}
+          </button>
         </div>
       </div>
 
-      <ContextPreviewDrawer />
-      <AddNoteInput />
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <BaseInstructionsSection />
+        <div className={`space-y-0 border-b border-[#1a1a1a] transition-opacity ${extrasEnabled ? '' : 'pointer-events-none opacity-45'}`}>
+          <NotesSection disabled={!extrasEnabled} />
+          <SkillsSection disabled={!extrasEnabled} />
+        </div>
+      </div>
+
+      <GeneratedFilesDrawer />
     </div>
   );
 }
 
-// ── System prompt ─────────────────────────────────────────────────────────────
-
-function SystemPromptSection() {
+function BaseInstructionsSection() {
   const { systemPrompt, setSystemPrompt } = usePersistedStore(useShallow((state) => ({
     systemPrompt: state.systemPrompt,
     setSystemPrompt: state.setSystemPrompt,
   })));
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(true);
   const [local, setLocal] = useState(systemPrompt);
   const [saved, setSaved] = useState(false);
 
-  // Keep local in sync if store changes from outside
-  useEffect(() => { setLocal(systemPrompt); }, [systemPrompt]);
+  useEffect(() => {
+    setLocal(systemPrompt);
+  }, [systemPrompt]);
 
   const save = () => {
     setSystemPrompt(local);
@@ -67,122 +85,162 @@ function SystemPromptSection() {
   const isDirty = local !== systemPrompt;
 
   return (
-    <div className="border-b border-[#1a1a1a]">
-      <button
-        onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-2 w-full px-4 py-2.5 text-left group"
-      >
-        <span className={`text-[10px] text-[#4a4a4a] transition-transform ${open ? 'rotate-90' : ''}`}>▶</span>
-        <span className="text-[10px] uppercase tracking-widest text-[#4a4a4a] group-hover:text-[#6b6b6b] transition-colors flex-1">
-          System Prompt
-        </span>
-        {systemPrompt.trim() && (
-          <span className="text-[9px] font-mono text-[#2a2a2a]">{systemPrompt.length}ch</span>
-        )}
-      </button>
+    <section className="border-b border-[#1a1a1a]">
+      <SectionHeader
+        title="Base Instructions"
+        meta={systemPrompt.trim() ? `${systemPrompt.length}ch` : 'always on'}
+        open={open}
+        onToggle={() => setOpen((value) => !value)}
+      />
 
       {open && (
-        <div className="px-3 pb-3 space-y-2">
-          <p className="text-[10px] text-[#3a3a3a] px-0.5">
-            Always prepended to Ember's context. Notes and skills are appended after.
+        <div className="space-y-2 px-3 pb-3">
+          <p className="px-0.5 text-[11px] leading-5 text-[#4a4a4a]">
+            Synced into Pi as `/workspace/.pi/APPEND_SYSTEM.md`. Use this for stable behavior and tone.
           </p>
           <textarea
             value={local}
-            onChange={(e) => setLocal(e.target.value)}
-            rows={6}
+            onChange={(event) => setLocal(event.target.value)}
+            rows={8}
             className="w-full resize-none rounded-xl border border-white/8 bg-white/[0.03] px-3 py-2.5 font-mono text-[11px] leading-relaxed text-slate-200 outline-none transition focus:border-white/15"
             spellCheck={false}
-            placeholder="No system prompt set…"
+            placeholder="Set the base instructions Ember should always follow…"
           />
           {isDirty && (
-            <div className="flex gap-2 justify-end">
+            <div className="flex justify-end gap-2">
               <button
                 onClick={() => setLocal(systemPrompt)}
-                className="text-[10px] text-[#4a4a4a] hover:text-[#6b6b6b] transition-colors"
+                className="text-[10px] text-[#4a4a4a] transition-colors hover:text-[#6b6b6b]"
               >
                 revert
               </button>
               <button
                 onClick={save}
-                className="text-[10px] text-[#e85c2a] hover:text-[#d44f20] transition-colors"
+                className="text-[10px] text-[#e85c2a] transition-colors hover:text-[#d44f20]"
               >
-                {saved ? '✓ saved' : 'save'}
+                {saved ? 'saved' : 'save'}
               </button>
             </div>
           )}
         </div>
       )}
-    </div>
+    </section>
   );
 }
 
-// ── Knowledge (notes) ─────────────────────────────────────────────────────────
-
-function KnowledgeSection() {
-  const { notes, togglePin, deleteNote, updateNote } = usePersistedStore(useShallow((state) => ({
+function NotesSection({ disabled }: { disabled: boolean }) {
+  const { notes, addNote, togglePin, deleteNote, updateNote } = usePersistedStore(useShallow((state) => ({
     notes: state.notes,
+    addNote: state.addNote,
     togglePin: state.togglePin,
     deleteNote: state.deleteNote,
     updateNote: state.updateNote,
   })));
+  const [open, setOpen] = useState(true);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editText, setEditText] = useState('');
+  const [draft, setDraft] = useState('');
 
-  const active = notes.filter((n) => n.pinned);
-  const inactive = notes.filter((n) => !n.pinned);
-  const [showInactive, setShowInactive] = useState(true);
+  const included = notes.filter((note) => note.pinned);
+  const excluded = notes.filter((note) => !note.pinned);
 
-  const startEdit = (id: string, content: string) => { setEditingId(id); setEditText(content); };
-  const saveEdit = () => { if (editingId) updateNote(editingId, editText); setEditingId(null); };
+  const startEdit = (id: string, content: string) => {
+    setEditingId(id);
+    setEditText(content);
+  };
+
+  const saveEdit = () => {
+    if (editingId) updateNote(editingId, editText);
+    setEditingId(null);
+  };
+
+  const submit = () => {
+    const text = draft.trim();
+    if (!text || disabled) return;
+    addNote({
+      id: crypto.randomUUID(),
+      content: text,
+      createdAt: Date.now(),
+      pinned: true,
+    });
+    setDraft('');
+  };
 
   return (
-    <div className="px-3 pt-3 pb-1">
-      {notes.length === 0 && (
-        <p className="text-[#2a2a2a] text-[12px] px-1 pb-2">
-          No notes yet. Add one below — active notes are injected into Ember's context.
-        </p>
-      )}
+    <section className="border-b border-[#1a1a1a]">
+      <SectionHeader
+        title="Notes"
+        meta={`${included.length}/${notes.length} included`}
+        open={open}
+        onToggle={() => setOpen((value) => !value)}
+      />
 
-      {active.length > 0 && (
-        <section className="mb-2">
-          <p className="text-[10px] text-[#e85c2a] uppercase tracking-widest mb-1.5 px-1">Active</p>
-          <NoteCards
-            notes={active}
-            editingId={editingId}
-            editText={editText}
-            onEditTextChange={setEditText}
-            onTogglePin={togglePin}
-            onDelete={deleteNote}
-            onStartEdit={startEdit}
-            onSaveEdit={saveEdit}
-          />
-        </section>
-      )}
+      {open && (
+        <div className="space-y-3 px-3 pb-3">
+          <p className="px-0.5 text-[11px] leading-5 text-[#4a4a4a]">
+            Short project reminders. Included notes are appended under Project Notes in Pi.
+          </p>
 
-      {inactive.length > 0 && (
-        <section>
-          <button
-            onClick={() => setShowInactive((v) => !v)}
-            className="flex items-center gap-1.5 text-[10px] text-[#4a4a4a] uppercase tracking-widest mb-1.5 px-1 hover:text-[#6b6b6b] transition-colors"
-          >
-            <span className={`transition-transform ${showInactive ? 'rotate-90' : ''}`}>▶</span>
-            Inactive ({inactive.length})
-          </button>
-          {showInactive && (
-            <NoteCards
-              notes={inactive}
-              editingId={editingId}
-              editText={editText}
-              onEditTextChange={setEditText}
-              onTogglePin={togglePin}
-              onDelete={deleteNote}
-              onStartEdit={startEdit}
-              onSaveEdit={saveEdit}
-            />
+          {included.length > 0 ? (
+            <div>
+              <p className="mb-1.5 px-1 text-[10px] uppercase tracking-widest text-[#e85c2a]">Included</p>
+              <NoteCards
+                notes={included}
+                editingId={editingId}
+                editText={editText}
+                onEditTextChange={setEditText}
+                onTogglePin={togglePin}
+                onDelete={deleteNote}
+                onStartEdit={startEdit}
+                onSaveEdit={saveEdit}
+              />
+            </div>
+          ) : (
+            <p className="px-1 text-[12px] text-[#4a4a4a]">
+              No notes are included yet.
+            </p>
           )}
-        </section>
+
+          {excluded.length > 0 && (
+            <div>
+              <p className="mb-1.5 px-1 text-[10px] uppercase tracking-widest text-[#5a5a5a]">Not Included</p>
+              <NoteCards
+                notes={excluded}
+                editingId={editingId}
+                editText={editText}
+                onEditTextChange={setEditText}
+                onTogglePin={togglePin}
+                onDelete={deleteNote}
+                onStartEdit={startEdit}
+                onSaveEdit={saveEdit}
+              />
+            </div>
+          )}
+
+          <div className="rounded-lg border border-[#1e1e1e] bg-[#141414] px-3 py-2 focus-within:border-[#2a2a2a]">
+            <div className="flex gap-2">
+              <input
+                value={draft}
+                onChange={(event) => setDraft(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') submit();
+                }}
+                disabled={disabled}
+                placeholder={disabled ? 'Turn notes and skills back on to add a note' : 'Add note to project context…'}
+                className="flex-1 bg-transparent text-sm text-[#e2e2e2] outline-none placeholder:text-[#3a3a3a] disabled:cursor-not-allowed"
+              />
+              <button
+                onClick={submit}
+                disabled={disabled || !draft.trim()}
+                className="text-[11px] text-[#e85c2a] transition-colors hover:text-[#d44f20] disabled:text-[#3a3a3a]"
+              >
+                add
+              </button>
+            </div>
+          </div>
+        </div>
       )}
-    </div>
+    </section>
   );
 }
 
@@ -190,7 +248,7 @@ interface NoteCardsProps {
   notes: { id: string; content: string; pinned: boolean; createdAt: number }[];
   editingId: string | null;
   editText: string;
-  onEditTextChange: (v: string) => void;
+  onEditTextChange: (value: string) => void;
   onTogglePin: (id: string) => void;
   onDelete: (id: string) => void;
   onStartEdit: (id: string, content: string) => void;
@@ -198,63 +256,70 @@ interface NoteCardsProps {
 }
 
 function NoteCards({
-  notes, editingId, editText, onEditTextChange,
-  onTogglePin, onDelete, onStartEdit, onSaveEdit,
+  notes,
+  editingId,
+  editText,
+  onEditTextChange,
+  onTogglePin,
+  onDelete,
+  onStartEdit,
+  onSaveEdit,
 }: NoteCardsProps) {
   return (
-    <div className="space-y-0.5">
+    <div className="space-y-1">
       {notes.map((note) => (
         <div
           key={note.id}
-          className="flex items-center gap-2 px-2 py-1.5 rounded-lg group hover:bg-[#0f0f0f] transition-colors"
+          className="group flex items-center gap-2 rounded-lg px-2 py-1.5 transition-colors hover:bg-[#0f0f0f]"
         >
-          {/* Active toggle pill */}
           <button
             onClick={() => onTogglePin(note.id)}
-            title={note.pinned ? 'Click to deactivate' : 'Click to activate'}
-            className={`flex-shrink-0 flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[9px] font-mono uppercase tracking-wider border transition-colors ${
+            title={note.pinned ? 'Exclude this note from Pi sync' : 'Include this note in Pi sync'}
+            className={`flex shrink-0 items-center gap-1 rounded-full border px-1.5 py-0.5 text-[9px] font-mono uppercase tracking-wider transition-colors ${
               note.pinned
                 ? 'border-[rgba(232,92,42,0.4)] bg-[rgba(232,92,42,0.12)] text-[#e85c2a]'
-                : 'border-white/8 bg-white/[0.02] text-[#3a3a3a] hover:text-[#6b6b6b] hover:border-white/15'
+                : 'border-white/8 bg-white/[0.02] text-[#5a5a5a] hover:border-white/15 hover:text-[#6b6b6b]'
             }`}
           >
-            <span className={`w-1 h-1 rounded-full ${note.pinned ? 'bg-[#e85c2a]' : 'bg-[#3a3a3a]'}`} />
-            {note.pinned ? 'on' : 'off'}
+            <span className={`h-1 w-1 rounded-full ${note.pinned ? 'bg-[#e85c2a]' : 'bg-[#3a3a3a]'}`} />
+            {note.pinned ? 'included' : 'excluded'}
           </button>
 
-          {/* Content */}
-          <div className="flex-1 min-w-0">
+          <div className="min-w-0 flex-1">
             {editingId === note.id ? (
               <input
                 autoFocus
                 value={editText}
-                onChange={(e) => onEditTextChange(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === 'Escape') onSaveEdit(); }}
+                onChange={(event) => onEditTextChange(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === 'Escape') onSaveEdit();
+                }}
                 onBlur={onSaveEdit}
-                className="w-full bg-transparent border-b border-[#e85c2a] text-[#e2e2e2] text-[12px] outline-none pb-0.5"
+                className="w-full border-b border-[#e85c2a] bg-transparent pb-0.5 text-[12px] text-[#e2e2e2] outline-none"
               />
             ) : (
-              <span
-                className={`text-[12px] leading-relaxed break-words cursor-text block ${note.pinned ? 'text-[#c0c0c0]' : 'text-[#5a5a5a]'}`}
+              <button
                 onDoubleClick={() => onStartEdit(note.id, note.content)}
+                className={`block w-full cursor-text text-left text-[12px] leading-relaxed ${
+                  note.pinned ? 'text-[#c0c0c0]' : 'text-[#5a5a5a]'
+                }`}
                 title="Double-click to edit"
               >
                 {note.content}
-              </span>
+              </button>
             )}
           </div>
 
-          {/* Actions */}
-          <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+          <div className="flex shrink-0 gap-1 opacity-0 transition-opacity group-hover:opacity-100">
             <button
               onClick={() => onStartEdit(note.id, note.content)}
-              className="text-[10px] text-[#4a4a4a] hover:text-[#5f8fff] transition-colors"
+              className="text-[10px] text-[#4a4a4a] transition-colors hover:text-[#5f8fff]"
             >
               edit
             </button>
             <button
               onClick={() => onDelete(note.id)}
-              className="text-[13px] text-[#4a4a4a] hover:text-[#e05252] transition-colors leading-none"
+              className="text-[13px] leading-none text-[#4a4a4a] transition-colors hover:text-[#e05252]"
             >
               ×
             </button>
@@ -265,125 +330,279 @@ function NoteCards({
   );
 }
 
-// ── Skills ────────────────────────────────────────────────────────────────────
-
-function SkillsSection() {
-  const { skills, toggleSkill, updateSkill } = usePersistedStore(useShallow((state) => ({
+function SkillsSection({ disabled }: { disabled: boolean }) {
+  const { skills, addSkill, updateSkill, deleteSkill, toggleSkill } = usePersistedStore(useShallow((state) => ({
     skills: state.skills,
-    toggleSkill: state.toggleSkill,
+    addSkill: state.addSkill,
     updateSkill: state.updateSkill,
+    deleteSkill: state.deleteSkill,
+    toggleSkill: state.toggleSkill,
   })));
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [draftContent, setDraftContent] = useState<Record<string, string>>({});
+  const [creating, setCreating] = useState(false);
+  const [drafts, setDrafts] = useState<Record<string, SkillDraft>>({});
+  const [newSkill, setNewSkill] = useState<SkillDraft>(EMPTY_SKILL_DRAFT);
 
-  const enabledCount = skills.filter((sk) => sk.enabled).length;
+  const enabledCount = skills.filter((skill) => skill.enabled).length;
+
+  const startEditing = (skillId: string, skill: { name: string; description?: string; content: string }) => {
+    setExpandedId((current) => (current === skillId ? null : skillId));
+    setDrafts((current) => ({
+      ...current,
+      [skillId]: {
+        name: skill.name,
+        description: skill.description ?? '',
+        content: skill.content,
+      },
+    }));
+  };
+
+  const saveSkill = (skillId: string) => {
+    const draft = drafts[skillId];
+    if (!draft) return;
+    const name = draft.name.trim();
+    if (!name) return;
+    updateSkill(skillId, {
+      name,
+      description: draft.description.trim() || undefined,
+      content: normalizeSkillBody(name, draft.content),
+    });
+  };
+
+  const createSkill = () => {
+    const name = newSkill.name.trim();
+    if (!name || disabled) return;
+    addSkill({
+      id: crypto.randomUUID(),
+      name,
+      description: newSkill.description.trim() || undefined,
+      content: normalizeSkillBody(name, newSkill.content),
+      enabled: true,
+      createdAt: Date.now(),
+    });
+    setCreating(false);
+    setNewSkill(EMPTY_SKILL_DRAFT);
+  };
 
   return (
-    <div className="px-3 py-2 border-t border-[#1a1a1a] mt-1">
-      <button
-        onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-2 w-full text-left group"
-      >
-        <span className={`text-[10px] text-[#4a4a4a] transition-transform ${open ? 'rotate-90' : ''}`}>▶</span>
-        <span className="text-[10px] uppercase tracking-widest text-[#4a4a4a] group-hover:text-[#6b6b6b] transition-colors">
-          Skills
-        </span>
-        <span className={`text-[10px] font-mono ml-1 ${enabledCount > 0 ? 'text-[#e85c2a]/60' : 'text-[#2a2a2a]'}`}>
-          {enabledCount}/{skills.length}
-        </span>
-      </button>
+    <section className="border-b border-[#1a1a1a]">
+      <SectionHeader
+        title="Skills"
+        meta={`${enabledCount}/${skills.length} enabled`}
+        open={open}
+        onToggle={() => setOpen((value) => !value)}
+        action={(
+          <button
+            onClick={(event) => {
+              event.stopPropagation();
+              if (disabled) return;
+              setCreating((value) => !value);
+              setExpandedId(null);
+            }}
+            disabled={disabled}
+            className="rounded-full border border-white/10 px-2.5 py-0.5 text-[10px] text-[#6b6b6b] transition-colors hover:border-white/15 hover:text-slate-200 disabled:cursor-not-allowed disabled:text-[#3a3a3a]"
+          >
+            {creating ? 'cancel' : 'new skill'}
+          </button>
+        )}
+      />
 
       {open && (
-        <div className="mt-2 space-y-1.5">
-          {skills.map((sk) => {
-            const isExpanded = expandedId === sk.id;
-            const draft = draftContent[sk.id] ?? sk.content;
-            const isDirty = draft !== sk.content;
+        <div className="space-y-3 px-3 pb-3">
+          <p className="px-0.5 text-[11px] leading-5 text-[#4a4a4a]">
+            Reusable workflows synced into `/workspace/.pi/skills/ember-managed/`. Enabled skills are available to Pi.
+          </p>
 
-            return (
-              <div
-                key={sk.id}
-                className={`rounded-xl border transition-colors ${
-                  sk.enabled ? 'border-[rgba(232,92,42,0.2)] bg-[rgba(232,92,42,0.04)]' : 'border-white/6 bg-white/[0.01]'
-                }`}
-              >
-                <div className="flex items-center gap-2 px-3 py-2">
-                  {/* Enable toggle pill */}
-                  <button
-                    onClick={() => toggleSkill(sk.id)}
-                    className={`flex-shrink-0 h-4 w-7 rounded-full border transition-colors ${
-                      sk.enabled ? 'border-[rgba(232,92,42,0.5)] bg-[rgba(232,92,42,0.3)]' : 'border-white/15 bg-white/[0.06]'
+          {creating && (
+            <SkillEditor
+              title="New Skill"
+              draft={newSkill}
+              onChange={setNewSkill}
+              onCancel={() => {
+                setCreating(false);
+                setNewSkill(EMPTY_SKILL_DRAFT);
+              }}
+              onSave={createSkill}
+              saveLabel="create skill"
+            />
+          )}
+
+          {skills.length === 0 ? (
+            <p className="px-1 text-[12px] text-[#4a4a4a]">
+              No skills yet. Create one to sync a reusable Pi workflow into the workspace.
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {skills.map((skill) => {
+                const draft = drafts[skill.id] ?? {
+                  name: skill.name,
+                  description: skill.description ?? '',
+                  content: skill.content,
+                };
+                const expanded = expandedId === skill.id;
+                const summary = (skill.description ?? firstMeaningfulLine(skill.content) ?? 'No description').trim();
+                const dirty =
+                  draft.name !== skill.name ||
+                  draft.description !== (skill.description ?? '') ||
+                  draft.content !== skill.content;
+
+                return (
+                  <div
+                    key={skill.id}
+                    className={`rounded-xl border transition-colors ${
+                      skill.enabled
+                        ? 'border-[rgba(232,92,42,0.2)] bg-[rgba(232,92,42,0.04)]'
+                        : 'border-white/6 bg-white/[0.01]'
                     }`}
                   >
-                    <div className={`mt-px h-3 w-3 rounded-full transition-transform ${
-                      sk.enabled ? 'translate-x-3 bg-[#e85c2a]' : 'translate-x-0.5 bg-slate-500'
-                    }`} />
-                  </button>
+                    <div className="flex items-start gap-2 px-3 py-2.5">
+                      <button
+                        onClick={() => toggleSkill(skill.id)}
+                        disabled={disabled}
+                        className={`mt-0.5 flex h-4 w-7 shrink-0 rounded-full border transition-colors ${
+                          skill.enabled
+                            ? 'border-[rgba(232,92,42,0.5)] bg-[rgba(232,92,42,0.3)]'
+                            : 'border-white/15 bg-white/[0.06]'
+                        }`}
+                        title={skill.enabled ? 'Disable this skill for Pi' : 'Enable this skill for Pi'}
+                      >
+                        <div className={`mt-px h-3 w-3 rounded-full transition-transform ${
+                          skill.enabled ? 'translate-x-3 bg-[#e85c2a]' : 'translate-x-0.5 bg-slate-500'
+                        }`} />
+                      </button>
 
-                  <span className={`flex-1 text-[12px] ${sk.enabled ? 'text-[#e2e2e2]' : 'text-[#6b6b6b]'}`}>
-                    {sk.name}
-                  </span>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className={`text-[12px] ${skill.enabled ? 'text-[#e2e2e2]' : 'text-[#7a7a7a]'}`}>
+                            {skill.name}
+                          </span>
+                          <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-mono uppercase tracking-wider ${
+                            skill.enabled
+                              ? 'bg-[rgba(232,92,42,0.12)] text-[#e85c2a]'
+                              : 'bg-white/[0.04] text-[#4a4a4a]'
+                          }`}>
+                            {skill.enabled ? 'enabled' : 'disabled'}
+                          </span>
+                        </div>
+                        <p className="mt-1 text-[11px] leading-5 text-[#5a5a5a]">
+                          {summary}
+                        </p>
+                      </div>
 
-                  {!isExpanded && (
-                    <span className="text-[10px] text-[#2a2a2a] truncate max-w-[90px]">
-                      {sk.content.slice(0, 60).replace(/\n/g, ' ')}
-                    </span>
-                  )}
-
-                  <button
-                    onClick={() => {
-                      setExpandedId(isExpanded ? null : sk.id);
-                      if (!isExpanded) setDraftContent((d) => ({ ...d, [sk.id]: sk.content }));
-                    }}
-                    className="text-[10px] text-[#3a3a3a] hover:text-[#6b6b6b] transition-colors flex-shrink-0"
-                    title={isExpanded ? 'Collapse' : 'Edit'}
-                  >
-                    {isExpanded ? '▲' : '▼'}
-                  </button>
-                </div>
-
-                {isExpanded && (
-                  <div className="px-3 pb-3 space-y-2">
-                    <textarea
-                      value={draft}
-                      onChange={(e) => setDraftContent((d) => ({ ...d, [sk.id]: e.target.value }))}
-                      rows={8}
-                      className="w-full bg-black/30 border border-white/8 rounded-lg px-2.5 py-2 text-[11px] font-mono text-[#c0c0c0] outline-none resize-none focus:border-white/15 transition"
-                    />
-                    {isDirty && (
-                      <div className="flex gap-2 justify-end">
+                      <div className="flex shrink-0 gap-2">
                         <button
-                          onClick={() => setDraftContent((d) => ({ ...d, [sk.id]: sk.content }))}
-                          className="text-[10px] text-[#4a4a4a] hover:text-[#6b6b6b] transition-colors"
+                          onClick={() => startEditing(skill.id, skill)}
+                          className="text-[10px] text-[#4a4a4a] transition-colors hover:text-[#6b6b6b]"
                         >
-                          revert
+                          {expanded ? 'close' : 'edit'}
                         </button>
                         <button
-                          onClick={() => {
-                            updateSkill(sk.id, { content: draft });
-                            setDraftContent((d) => { const n = { ...d }; delete n[sk.id]; return n; });
+                          onClick={() => deleteSkill(skill.id)}
+                          className="text-[10px] text-[#4a4a4a] transition-colors hover:text-[#e05252]"
+                        >
+                          delete
+                        </button>
+                      </div>
+                    </div>
+
+                    {expanded && (
+                      <div className="border-t border-white/6 px-3 pb-3 pt-3">
+                        <SkillEditor
+                          title="Edit Skill"
+                          draft={draft}
+                          onChange={(nextDraft) => {
+                            setDrafts((current) => ({ ...current, [skill.id]: nextDraft }));
                           }}
-                          className="text-[10px] text-[#e85c2a] hover:text-[#d44f20] transition-colors"
-                        >
-                          save
-                        </button>
+                          onCancel={() => {
+                            setExpandedId(null);
+                            setDrafts((current) => ({
+                              ...current,
+                              [skill.id]: {
+                                name: skill.name,
+                                description: skill.description ?? '',
+                                content: skill.content,
+                              },
+                            }));
+                          }}
+                          onSave={() => saveSkill(skill.id)}
+                          saveLabel={dirty ? 'save changes' : 'saved'}
+                          saveDisabled={!dirty}
+                        />
                       </div>
                     )}
                   </div>
-                )}
-              </div>
-            );
-          })}
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
+    </section>
+  );
+}
+
+interface SkillEditorProps {
+  title: string;
+  draft: SkillDraft;
+  onChange: (draft: SkillDraft) => void;
+  onCancel: () => void;
+  onSave: () => void;
+  saveLabel: string;
+  saveDisabled?: boolean;
+}
+
+function SkillEditor({
+  title,
+  draft,
+  onChange,
+  onCancel,
+  onSave,
+  saveLabel,
+  saveDisabled = false,
+}: SkillEditorProps) {
+  return (
+    <div className="space-y-2 rounded-xl border border-white/8 bg-black/20 px-3 py-3">
+      <p className="text-[10px] uppercase tracking-widest text-[#4a4a4a]">{title}</p>
+      <input
+        value={draft.name}
+        onChange={(event) => onChange({ ...draft, name: event.target.value })}
+        placeholder="Skill name"
+        className="w-full rounded-lg border border-white/8 bg-white/[0.03] px-2.5 py-2 text-[12px] text-slate-200 outline-none transition focus:border-white/15"
+      />
+      <input
+        value={draft.description}
+        onChange={(event) => onChange({ ...draft, description: event.target.value })}
+        placeholder="Short description"
+        className="w-full rounded-lg border border-white/8 bg-white/[0.03] px-2.5 py-2 text-[12px] text-slate-200 outline-none transition focus:border-white/15"
+      />
+      <textarea
+        value={draft.content}
+        onChange={(event) => onChange({ ...draft, content: event.target.value })}
+        rows={10}
+        placeholder={defaultSkillTemplate(draft.name)}
+        className="w-full resize-none rounded-lg border border-white/8 bg-black/30 px-2.5 py-2 font-mono text-[11px] text-[#c0c0c0] outline-none transition focus:border-white/15"
+      />
+      <div className="flex justify-end gap-2">
+        <button
+          onClick={onCancel}
+          className="text-[10px] text-[#4a4a4a] transition-colors hover:text-[#6b6b6b]"
+        >
+          cancel
+        </button>
+        <button
+          onClick={onSave}
+          disabled={saveDisabled || !draft.name.trim()}
+          className="text-[10px] text-[#e85c2a] transition-colors hover:text-[#d44f20] disabled:text-[#3a3a3a]"
+        >
+          {saveLabel}
+        </button>
+      </div>
     </div>
   );
 }
 
-// ── Context preview ───────────────────────────────────────────────────────────
-
-function ContextPreviewDrawer() {
+function GeneratedFilesDrawer() {
   const { systemPrompt, memoryMode, notes, skills } = usePersistedStore(useShallow((state) => ({
     systemPrompt: state.systemPrompt,
     memoryMode: state.memoryMode,
@@ -392,65 +611,110 @@ function ContextPreviewDrawer() {
   })));
   const [open, setOpen] = useState(false);
 
-  const preview = buildEffectivePrompt({ systemPrompt, memoryMode, notes, skills });
+  const appendSystem = buildPiAppendSystemPrompt({ systemPrompt, memoryMode, notes, skills });
+  const managedSkills = buildPiManagedSkills(skills, memoryMode);
 
   return (
-    <div className="border-t border-[#1a1a1a] flex-shrink-0">
-      <button
-        onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-2 w-full px-4 py-2 text-left group"
-      >
-        <span className={`text-[10px] text-[#4a4a4a] transition-transform ${open ? 'rotate-90' : ''}`}>▶</span>
-        <span className="text-[10px] uppercase tracking-widest text-[#4a4a4a] group-hover:text-[#6b6b6b] transition-colors flex-1">
-          Ember sees this
-        </span>
-        <span className="text-[10px] font-mono text-[#2a2a2a]">{preview.length}ch</span>
-      </button>
+    <div className="shrink-0 border-t border-[#1a1a1a]">
+      <SectionHeader
+        title="Generated Pi Files"
+        meta={`${managedSkills.length} skills`}
+        open={open}
+        onToggle={() => setOpen((value) => !value)}
+      />
 
       {open && (
-        <div className="px-3 pb-3">
-          <pre className="font-mono text-[10px] text-[#4caf78]/70 bg-black/30 rounded-xl border border-white/8 px-3 py-2.5 max-h-40 overflow-y-auto whitespace-pre-wrap break-words leading-relaxed">
-            {preview}
-          </pre>
+        <div className="space-y-2 px-3 pb-3">
+          <p className="px-0.5 text-[11px] leading-5 text-[#4a4a4a]">
+            Advanced preview only. Ember writes these files for Pi automatically.
+          </p>
+
+          <div className="rounded-xl border border-white/8 bg-black/30 px-3 py-2.5">
+            <p className="text-[10px] uppercase tracking-widest text-[#4a4a4a]">
+              /workspace/.pi/APPEND_SYSTEM.md
+            </p>
+            <pre className="mt-2 max-h-32 overflow-y-auto whitespace-pre-wrap break-words font-mono text-[10px] leading-relaxed text-[#4caf78]/70">
+              {appendSystem || '# No appended system context'}
+            </pre>
+          </div>
+
+          <div className="rounded-xl border border-white/8 bg-black/30 px-3 py-2.5">
+            <p className="text-[10px] uppercase tracking-widest text-[#4a4a4a]">
+              /workspace/.pi/skills/ember-managed/
+            </p>
+            {managedSkills.length > 0 ? (
+              <div className="mt-2 space-y-1">
+                {managedSkills.map((skill) => (
+                  <div key={skill.slug} className="font-mono text-[10px] leading-relaxed text-slate-400">
+                    <span className="text-[#e85c2a]/80">{skill.slug}</span>
+                    <span className="text-[#3a3a3a]"> — </span>
+                    <span>{skill.description}</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="mt-2 text-[11px] text-[#3a3a3a]">
+                No managed Pi skill files will be generated right now.
+              </p>
+            )}
+          </div>
         </div>
       )}
     </div>
   );
 }
 
-// ── Add note input ────────────────────────────────────────────────────────────
+interface SectionHeaderProps {
+  title: string;
+  meta?: string;
+  open: boolean;
+  onToggle: () => void;
+  action?: ReactNode;
+}
 
-function AddNoteInput() {
-  const { addNote } = usePersistedStore(useShallow((state) => ({
-    addNote: state.addNote,
-  })));
-  const [draft, setDraft] = useState('');
-
-  const submit = () => {
-    const text = draft.trim();
-    if (!text) return;
-    addNote({ id: crypto.randomUUID(), content: text, createdAt: Date.now(), pinned: true });
-    setDraft('');
-  };
-
+function SectionHeader({ title, meta, open, onToggle, action }: SectionHeaderProps) {
   return (
-    <div className="border-t border-[#1e1e1e] px-3 py-2 flex-shrink-0">
-      <div className="flex gap-2 bg-[#141414] rounded-lg border border-[#1e1e1e] px-3 py-2 focus-within:border-[#2a2a2a]">
-        <input
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && submit()}
-          placeholder="Add note… (Enter to save)"
-          className="flex-1 bg-transparent text-[#e2e2e2] placeholder-[#3a3a3a] text-sm outline-none"
-        />
-        <button
-          onClick={submit}
-          disabled={!draft.trim()}
-          className="text-[11px] text-[#e85c2a] hover:text-[#d44f20] disabled:text-[#3a3a3a] transition-colors"
-        >
-          add
-        </button>
-      </div>
+    <div className="flex items-center gap-2 px-4 py-2.5">
+      <button
+        onClick={onToggle}
+        className="group flex min-w-0 flex-1 items-center gap-2 text-left"
+      >
+        <span className={`text-[10px] text-[#4a4a4a] transition-transform ${open ? 'rotate-90' : ''}`}>▶</span>
+        <span className="flex-1 text-[10px] uppercase tracking-widest text-[#4a4a4a] transition-colors group-hover:text-[#6b6b6b]">
+          {title}
+        </span>
+      </button>
+      {action}
+      {meta && <span className="text-[10px] font-mono text-[#2a2a2a]">{meta}</span>}
     </div>
   );
+}
+
+function normalizeSkillBody(name: string, content: string): string {
+  const trimmed = content.trim();
+  if (trimmed) return trimmed;
+  return defaultSkillTemplate(name);
+}
+
+function defaultSkillTemplate(name: string): string {
+  const title = name.trim() || 'New Skill';
+  return `# ${title}
+
+When to use
+- Describe when Pi should reach for this skill.
+
+Steps
+1. First action
+2. Second action
+3. Output or handoff
+`;
+}
+
+function firstMeaningfulLine(content: string): string {
+  for (const rawLine of content.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith('#')) continue;
+    return line.replace(/^[-*]\s+/, '');
+  }
+  return '';
 }
