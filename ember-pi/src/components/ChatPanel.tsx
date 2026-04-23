@@ -155,6 +155,9 @@ export function ChatPanel() {
   // ── File attachments ───────────────────────────────────────────────────────
   const [attachments, setAttachments] = useState<{ name: string; path: string }[]>([]);
   const attachInputRef = useRef<HTMLInputElement>(null);
+  const [dragActive, setDragActive] = useState(false);
+  const [uploadingAttachments, setUploadingAttachments] = useState(false);
+  const dragDepthRef = useRef(0);
 
   // ── Stable refs for startSession deps — prevents identity change from re-firing effects ──
   const containerNameRef = useRef(containerName);
@@ -465,24 +468,75 @@ export function ChatPanel() {
 
   // ── Send ───────────────────────────────────────────────────────────────────
 
+  const uploadAttachments = useCallback(async (files: File[]) => {
+    if (!files.length || agentStatus === 'running') return;
+    const sharedPath = runtimeHealthRef.current?.sharedPath?.replace(/\/$/, '') ?? '';
+    if (!sharedPath) return;
+
+    setUploadingAttachments(true);
+    useEphemeralStore.getState().setSuppressBlurCollapse(false);
+    try {
+      for (const file of files) {
+        const hostPath = `${sharedPath}/${file.name}`;
+        const destPath = `/workspace/${file.name}`;
+        try {
+          await writeFileBytes(hostPath, file);
+          setAttachments((prev) => [...prev, { name: file.name, path: destPath }]);
+        } catch (err) {
+          console.error('Attachment upload failed:', err);
+        }
+      }
+    } finally {
+      setUploadingAttachments(false);
+    }
+  }, [agentStatus]);
+
   const handleAttach = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);
     if (!files.length) return;
-    const sharedPath = runtimeHealth?.sharedPath?.replace(/\/$/, '') ?? '';
-    if (!sharedPath) return;
-    useEphemeralStore.getState().setSuppressBlurCollapse(false);
-    for (const file of files) {
-      const hostPath = `${sharedPath}/${file.name}`;
-      const destPath = `/workspace/${file.name}`;
-      try {
-        await writeFileBytes(hostPath, file);
-        setAttachments((prev) => [...prev, { name: file.name, path: destPath }]);
-      } catch (err) {
-        console.error('Attachment upload failed:', err);
-      }
-    }
+    await uploadAttachments(files);
     e.target.value = '';
   };
+
+  const dragHasFiles = (event: React.DragEvent<HTMLElement>) =>
+    Array.from(event.dataTransfer?.types ?? []).includes('Files');
+
+  const handleDragEnter = useCallback((event: React.DragEvent<HTMLDivElement>) => {
+    if (!dragHasFiles(event) || agentStatus === 'running') return;
+    event.preventDefault();
+    event.stopPropagation();
+    dragDepthRef.current += 1;
+    setDragActive(true);
+  }, [agentStatus]);
+
+  const handleDragOver = useCallback((event: React.DragEvent<HTMLDivElement>) => {
+    if (!dragHasFiles(event) || agentStatus === 'running') return;
+    event.preventDefault();
+    event.stopPropagation();
+    event.dataTransfer.dropEffect = 'copy';
+    if (!dragActive) setDragActive(true);
+  }, [agentStatus, dragActive]);
+
+  const handleDragLeave = useCallback((event: React.DragEvent<HTMLDivElement>) => {
+    if (!dragHasFiles(event) || agentStatus === 'running') return;
+    event.preventDefault();
+    event.stopPropagation();
+    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+    if (dragDepthRef.current === 0) {
+      setDragActive(false);
+    }
+  }, [agentStatus]);
+
+  const handleDrop = useCallback(async (event: React.DragEvent<HTMLDivElement>) => {
+    if (!dragHasFiles(event) || agentStatus === 'running') return;
+    event.preventDefault();
+    event.stopPropagation();
+    dragDepthRef.current = 0;
+    setDragActive(false);
+    const files = Array.from(event.dataTransfer.files ?? []);
+    if (!files.length) return;
+    await uploadAttachments(files);
+  }, [agentStatus, uploadAttachments]);
 
   const ensureRuntimeReady = useCallback(async () => {
     if (containerStatusRef.current === 'running') return true;
@@ -522,7 +576,7 @@ export function ChatPanel() {
 
   const send = useCallback(async () => {
     const text = inputValue.trim();
-    if ((!text && attachments.length === 0) || agentStatus === 'running') return;
+    if ((!text && attachments.length === 0) || agentStatus === 'running' || uploadingAttachments) return;
 
     const runtimeReady = await ensureRuntimeReady();
     if (!runtimeReady) return;
@@ -571,7 +625,7 @@ export function ChatPanel() {
       });
       setAgentStatus('idle');
     }
-  }, [addMessage, addSessionEvent, agentStatus, attachments, ensureRuntimeReady, inputValue, setAgentStatus, setInputValue, startSession]);
+  }, [addMessage, addSessionEvent, agentStatus, attachments, ensureRuntimeReady, inputValue, setAgentStatus, setInputValue, startSession, uploadingAttachments]);
 
   const stopRun = useCallback(async () => {
     if (agentStatus !== 'running' || stopRequested) return;
@@ -601,7 +655,7 @@ export function ChatPanel() {
     }
   };
 
-  const canSend = (Boolean(inputValue.trim()) || attachments.length > 0) && agentStatus !== 'running';
+  const canSend = (Boolean(inputValue.trim()) || attachments.length > 0) && agentStatus !== 'running' && !uploadingAttachments;
   const canStop = agentStatus === 'running' && !stopRequested;
   const isRunning = agentStatus === 'running';
   const sharedPath = runtimeHealth?.sharedPath ?? '';
@@ -615,6 +669,8 @@ export function ChatPanel() {
   const quickPrompts = buildQuickPrompts({ systemPrompt, memoryMode, notes, skills });
   const placeholder = voiceActive
     ? 'Listening…'
+    : uploadingAttachments
+      ? 'Uploading attachment…'
     : isRunning
       ? 'Working…'
       : containerStatus === 'running'
@@ -624,7 +680,28 @@ export function ChatPanel() {
           : 'Ask Ember…';
 
   return (
-    <div className="relative flex h-full min-h-0 flex-col">
+    <div
+      className="relative flex h-full min-h-0 flex-col"
+      onDragEnter={handleDragEnter}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      {(dragActive || uploadingAttachments) && (
+        <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-[rgba(9,12,20,0.82)] backdrop-blur-sm">
+          <div className="rounded-2xl border border-[rgba(255,109,43,0.28)] bg-[rgba(255,109,43,0.08)] px-5 py-4 text-center shadow-[0_0_0_1px_rgba(255,109,43,0.05)]">
+            <p className="text-[13px] font-medium text-slate-100">
+              {uploadingAttachments ? 'Uploading files…' : 'Drop files to attach'}
+            </p>
+            <p className="mt-1 text-[11px] leading-5 text-slate-400">
+              {uploadingAttachments
+                ? 'Copying into the shared workspace before sending.'
+                : 'Files will be copied into `/workspace` and attached to your next message.'}
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Status bar */}
       <div className="flex items-center gap-2 border-b border-white/6 px-4 py-2">
         <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${
@@ -824,7 +901,7 @@ export function ChatPanel() {
         )}
 
         {/* Attachment chips */}
-        {attachments.length > 0 && (
+        {(attachments.length > 0 || uploadingAttachments) && (
           <div className="mb-2 flex flex-wrap gap-1.5">
             {attachments.map((a) => (
               <span
@@ -843,6 +920,12 @@ export function ChatPanel() {
                 </button>
               </span>
             ))}
+            {uploadingAttachments && (
+              <span className="flex items-center gap-1.5 rounded-full border border-[rgba(255,109,43,0.18)] bg-[rgba(255,109,43,0.08)] px-2.5 py-0.5 text-[11px] text-[rgba(255,160,120,0.95)]">
+                <span className="h-1.5 w-1.5 rounded-full bg-[rgba(255,109,43,0.9)] animate-pulse" />
+                uploading…
+              </span>
+            )}
           </div>
         )}
 
@@ -883,8 +966,8 @@ export function ChatPanel() {
               useEphemeralStore.getState().setSuppressBlurCollapse(true);
               attachInputRef.current?.click();
             }}
-            disabled={isRunning}
-            title="Attach file"
+            disabled={isRunning || uploadingAttachments}
+            title={uploadingAttachments ? 'Uploading attachment…' : 'Attach file'}
             className="mb-0.5 shrink-0 rounded-full p-1.5 text-slate-600 transition disabled:opacity-20 hover:text-slate-300"
           >
             <svg width="13" height="13" viewBox="0 0 14 14" fill="none">
