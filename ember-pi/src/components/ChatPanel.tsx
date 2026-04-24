@@ -369,6 +369,7 @@ export function ChatPanel() {
   useEffect(() => {
     let turn = initialTurnState();
     let turnClosed = false;
+    let currentAgentId: string | null = null;
 
     const syncThought = (content: string, id: string, timestamp: number) => {
       if (!content.trim()) return;
@@ -387,10 +388,25 @@ export function ChatPanel() {
       };
     };
 
+    // Update the specific agent bubble we're streaming into — never the "last
+    // message", which may be a new user message if pi emits stragglers after
+    // agentStatus flipped to idle.
+    const applyToCurrentAgent = (patch: Partial<ChatMessage>) => {
+      const id = currentAgentId;
+      if (!id) return;
+      useEphemeralStore.setState((s) => {
+        const idx = s.messages.findIndex((m) => m.id === id);
+        if (idx === -1) return s;
+        const messages = [...s.messages];
+        messages[idx] = { ...messages[idx], ...patch };
+        return { messages };
+      });
+    };
+
     const pushUpdate = (t: TurnState, streaming: boolean) => {
       const patch = buildPatch(t, streaming);
       if (patch.thought) syncThought(patch.thought, t.thoughtId, t.thoughtTimestamp);
-      updateLastMessage(patch);
+      applyToCurrentAgent(patch);
     };
 
     const finalize = (t: TurnState) => {
@@ -398,13 +414,14 @@ export function ChatPanel() {
       turnClosed = true;
       const patch = buildPatch(t, false);
       if (patch.thought) syncThought(patch.thought, t.thoughtId, t.thoughtTimestamp);
-      updateLastMessage(patch);
+      applyToCurrentAgent(patch);
       if (patch.content.trim() || patch.thought.trim()) {
         addSessionEvent({ id: crypto.randomUUID(), type: 'agent', content: patch.content, timestamp: Date.now() });
         setHappyFlash(true);
         if (happyFlashTimerRef.current) clearTimeout(happyFlashTimerRef.current);
         happyFlashTimerRef.current = setTimeout(() => setHappyFlash(false), 1800);
       }
+      currentAgentId = null;
       setStopRequested(false);
       setAgentStatus('idle');
       setPiStatus('ready');
@@ -422,12 +439,19 @@ export function ChatPanel() {
         setStopRequested(false);
         const msgs = useEphemeralStore.getState().messages;
         const last = msgs[msgs.length - 1];
-        if (last?.role === 'agent' && last.streaming) return;
-        addMessage({ id: crypto.randomUUID(), role: 'agent', content: '', thought: '', thoughtStreaming: false, timestamp: Date.now(), streaming: true, toolCalls: [] });
+        if (last?.role === 'agent' && last.streaming) {
+          currentAgentId = last.id;
+          return;
+        }
+        const newId = crypto.randomUUID();
+        currentAgentId = newId;
+        addMessage({ id: newId, role: 'agent', content: '', thought: '', thoughtStreaming: false, timestamp: Date.now(), streaming: true, toolCalls: [] });
         setAgentStatus('running');
         return;
       }
-      if (ev.type === 'agent_end' || (ev.type === 'message_update' && ev.assistantMessageEvent?.type === 'done')) {
+      // Only agent_end closes the turn. `done` fires per assistant segment and
+      // a tool-using turn has several of them before agent_end.
+      if (ev.type === 'agent_end') {
         finalize(turn);
         return;
       }
@@ -439,6 +463,13 @@ export function ChatPanel() {
 
     const unlistenEnded = onPiEnded(() => {
       sessionActiveRef.current = false;
+      // If the session died mid-turn, unstick the streaming bubble so a future
+      // send isn't blocked and the previous bubble isn't orphaned.
+      if (currentAgentId) {
+        applyToCurrentAgent({ streaming: false, thoughtStreaming: false });
+        currentAgentId = null;
+      }
+      turnClosed = true;
       if (restartAfterStopRef.current && containerStatusRef.current === 'running') {
         restartAfterStopRef.current = false;
         setStopRequested(false);
@@ -464,7 +495,7 @@ export function ChatPanel() {
       unlistenEndedFn?.();
       unlistenStderrFn?.();
     };
-  }, [addMessage, addSessionEvent, setAgentStatus, setPiStatus, startSession, updateLastMessage, upsertThoughtLine]);
+  }, [addMessage, addSessionEvent, setAgentStatus, setPiStatus, startSession, upsertThoughtLine]);
 
   // ── Send ───────────────────────────────────────────────────────────────────
 
@@ -709,8 +740,16 @@ export function ChatPanel() {
           piStatus === 'starting' ? 'bg-amber-400 animate-pulse' :
           piStatus === 'error' ? 'bg-red-400' : 'bg-slate-600'
         }`} />
+        <span className={`shrink-0 text-[11px] ${
+          piStatus === 'ready' ? 'text-emerald-400/80' :
+          piStatus === 'starting' ? 'text-amber-400/80' :
+          piStatus === 'error' ? 'text-red-400/80' : 'text-slate-500'
+        }`}>
+          {piStatus === 'ready' ? 'Ready' : piStatus === 'starting' ? 'Starting…' : piStatus === 'error' ? 'Error' : 'Offline'}
+        </span>
+        <span className="text-slate-700 text-[11px]">·</span>
         <span className="text-[11px] text-slate-500 min-w-0 flex-1 truncate">
-          {modelConfig.provider}/{modelConfig.model || '—'}
+          {modelConfig.model || modelConfig.provider || '—'}
         </span>
         {isRunning && (
           <button

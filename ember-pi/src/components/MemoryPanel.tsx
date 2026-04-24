@@ -24,11 +24,11 @@ export function MemoryPanel() {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="border-b border-[#1e1e1e] px-4 py-2.5">
+      <div className="border-b border-white/8 px-4 py-2.5">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <span className="text-[11px] uppercase tracking-widest text-[#6b6b6b]">Instructions</span>
-            <p className="mt-1 text-[11px] leading-5 text-[#3f3f3f]">
+            <span className="text-[11px] uppercase tracking-widest text-slate-400">Instructions</span>
+            <p className="mt-1 text-[11px] leading-5 text-slate-500">
               Base instructions always apply. Notes and skills are optional project context synced for Pi.
             </p>
           </div>
@@ -37,7 +37,7 @@ export function MemoryPanel() {
             className={`shrink-0 rounded-full border px-3 py-1 text-[11px] transition ${
               extrasEnabled
                 ? 'border-[rgba(232,92,42,0.4)] bg-[rgba(232,92,42,0.1)] text-[#e85c2a]'
-                : 'border-white/10 bg-white/[0.02] text-[#4a4a4a] hover:text-[#6b6b6b]'
+                : 'border-white/10 bg-white/[0.02] text-slate-500 hover:text-slate-300'
             }`}
             title={
               extrasEnabled
@@ -52,7 +52,7 @@ export function MemoryPanel() {
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         <BaseInstructionsSection />
-        <div className={`space-y-0 border-b border-[#1a1a1a] transition-opacity ${extrasEnabled ? '' : 'pointer-events-none opacity-45'}`}>
+        <div className={`space-y-0 border-b border-white/6 transition-opacity ${extrasEnabled ? '' : 'pointer-events-none opacity-45'}`}>
           <NotesSection disabled={!extrasEnabled} />
           <SkillsSection disabled={!extrasEnabled} />
         </div>
@@ -85,7 +85,7 @@ function BaseInstructionsSection() {
   const isDirty = local !== systemPrompt;
 
   return (
-    <section className="border-b border-[#1a1a1a]">
+    <section className="border-b border-white/6">
       <SectionHeader
         title="Base Instructions"
         meta={systemPrompt.trim() ? `${systemPrompt.length}ch` : 'always on'}
@@ -95,7 +95,7 @@ function BaseInstructionsSection() {
 
       {open && (
         <div className="space-y-2 px-3 pb-3">
-          <p className="px-0.5 text-[11px] leading-5 text-[#4a4a4a]">
+          <p className="px-0.5 text-[11px] leading-5 text-slate-500">
             Synced into Pi as `/workspace/.pi/APPEND_SYSTEM.md`. Use this for stable behavior and tone.
           </p>
           <textarea
@@ -110,7 +110,7 @@ function BaseInstructionsSection() {
             <div className="flex justify-end gap-2">
               <button
                 onClick={() => setLocal(systemPrompt)}
-                className="text-[10px] text-[#4a4a4a] transition-colors hover:text-[#6b6b6b]"
+                className="text-[10px] text-slate-500 transition-colors hover:text-slate-300"
               >
                 revert
               </button>
@@ -167,7 +167,7 @@ function NotesSection({ disabled }: { disabled: boolean }) {
   };
 
   return (
-    <section className="border-b border-[#1a1a1a]">
+    <section className="border-b border-white/6">
       <SectionHeader
         title="Notes"
         meta={`${included.length}/${notes.length} included`}
@@ -177,7 +177,7 @@ function NotesSection({ disabled }: { disabled: boolean }) {
 
       {open && (
         <div className="space-y-3 px-3 pb-3">
-          <p className="px-0.5 text-[11px] leading-5 text-[#4a4a4a]">
+          <p className="px-0.5 text-[11px] leading-5 text-slate-500">
             Short project reminders. Included notes are appended under Project Notes in Pi.
           </p>
 
@@ -196,14 +196,14 @@ function NotesSection({ disabled }: { disabled: boolean }) {
               />
             </div>
           ) : (
-            <p className="px-1 text-[12px] text-[#4a4a4a]">
+            <p className="px-1 text-[12px] text-slate-400">
               No notes are included yet.
             </p>
           )}
 
           {excluded.length > 0 && (
             <div>
-              <p className="mb-1.5 px-1 text-[10px] uppercase tracking-widest text-[#5a5a5a]">Not Included</p>
+              <p className="mb-1.5 px-1 text-[10px] uppercase tracking-widest text-slate-500">Not Included</p>
               <NoteCards
                 notes={excluded}
                 editingId={editingId}
@@ -217,7 +217,7 @@ function NotesSection({ disabled }: { disabled: boolean }) {
             </div>
           )}
 
-          <div className="rounded-lg border border-[#1e1e1e] bg-[#141414] px-3 py-2 focus-within:border-[#2a2a2a]">
+          <div className="rounded-lg border border-white/8 bg-white/[0.02] px-3 py-2 focus-within:border-white/15 transition">
             <div className="flex gap-2">
               <input
                 value={draft}
@@ -227,12 +227,12 @@ function NotesSection({ disabled }: { disabled: boolean }) {
                 }}
                 disabled={disabled}
                 placeholder={disabled ? 'Turn notes and skills back on to add a note' : 'Add note to project context…'}
-                className="flex-1 bg-transparent text-sm text-[#e2e2e2] outline-none placeholder:text-[#3a3a3a] disabled:cursor-not-allowed"
+                className="flex-1 bg-transparent text-sm text-slate-200 outline-none placeholder:text-slate-600 disabled:cursor-not-allowed"
               />
               <button
                 onClick={submit}
                 disabled={disabled || !draft.trim()}
-                className="text-[11px] text-[#e85c2a] transition-colors hover:text-[#d44f20] disabled:text-[#3a3a3a]"
+                className="text-[11px] text-[#e85c2a] transition-colors hover:text-[#d44f20] disabled:text-slate-600"
               >
                 add
               </button>
@@ -270,7 +270,7 @@ function NoteCards({
       {notes.map((note) => (
         <div
           key={note.id}
-          className="group flex items-center gap-2 rounded-lg px-2 py-1.5 transition-colors hover:bg-[#0f0f0f]"
+          className="group flex items-center gap-2 rounded-lg px-2 py-1.5 transition-colors hover:bg-white/[0.04]"
         >
           <button
             onClick={() => onTogglePin(note.id)}
@@ -278,10 +278,10 @@ function NoteCards({
             className={`flex shrink-0 items-center gap-1 rounded-full border px-1.5 py-0.5 text-[9px] font-mono uppercase tracking-wider transition-colors ${
               note.pinned
                 ? 'border-[rgba(232,92,42,0.4)] bg-[rgba(232,92,42,0.12)] text-[#e85c2a]'
-                : 'border-white/8 bg-white/[0.02] text-[#5a5a5a] hover:border-white/15 hover:text-[#6b6b6b]'
+                : 'border-white/8 bg-white/[0.02] text-slate-500 hover:border-white/15 hover:text-slate-300'
             }`}
           >
-            <span className={`h-1 w-1 rounded-full ${note.pinned ? 'bg-[#e85c2a]' : 'bg-[#3a3a3a]'}`} />
+            <span className={`h-1 w-1 rounded-full ${note.pinned ? 'bg-[#e85c2a]' : 'bg-slate-600'}`} />
             {note.pinned ? 'included' : 'excluded'}
           </button>
 
@@ -295,13 +295,13 @@ function NoteCards({
                   if (event.key === 'Enter' || event.key === 'Escape') onSaveEdit();
                 }}
                 onBlur={onSaveEdit}
-                className="w-full border-b border-[#e85c2a] bg-transparent pb-0.5 text-[12px] text-[#e2e2e2] outline-none"
+                className="w-full border-b border-[#e85c2a] bg-transparent pb-0.5 text-[12px] text-slate-200 outline-none"
               />
             ) : (
               <button
                 onDoubleClick={() => onStartEdit(note.id, note.content)}
                 className={`block w-full cursor-text text-left text-[12px] leading-relaxed ${
-                  note.pinned ? 'text-[#c0c0c0]' : 'text-[#5a5a5a]'
+                  note.pinned ? 'text-slate-200' : 'text-slate-500'
                 }`}
                 title="Double-click to edit"
               >
@@ -313,13 +313,13 @@ function NoteCards({
           <div className="flex shrink-0 gap-1 opacity-0 transition-opacity group-hover:opacity-100">
             <button
               onClick={() => onStartEdit(note.id, note.content)}
-              className="text-[10px] text-[#4a4a4a] transition-colors hover:text-[#5f8fff]"
+              className="text-[10px] text-slate-500 transition-colors hover:text-[#5f8fff]"
             >
               edit
             </button>
             <button
               onClick={() => onDelete(note.id)}
-              className="text-[13px] leading-none text-[#4a4a4a] transition-colors hover:text-[#e05252]"
+              className="text-[13px] leading-none text-slate-500 transition-colors hover:text-[#e05252]"
             >
               ×
             </button>
@@ -386,7 +386,7 @@ function SkillsSection({ disabled }: { disabled: boolean }) {
   };
 
   return (
-    <section className="border-b border-[#1a1a1a]">
+    <section className="border-b border-white/6">
       <SectionHeader
         title="Skills"
         meta={`${enabledCount}/${skills.length} enabled`}
@@ -401,7 +401,7 @@ function SkillsSection({ disabled }: { disabled: boolean }) {
               setExpandedId(null);
             }}
             disabled={disabled}
-            className="rounded-full border border-white/10 px-2.5 py-0.5 text-[10px] text-[#6b6b6b] transition-colors hover:border-white/15 hover:text-slate-200 disabled:cursor-not-allowed disabled:text-[#3a3a3a]"
+            className="rounded-full border border-white/10 px-2.5 py-0.5 text-[10px] text-slate-400 transition-colors hover:border-white/15 hover:text-slate-200 disabled:cursor-not-allowed disabled:text-slate-600"
           >
             {creating ? 'cancel' : 'new skill'}
           </button>
@@ -410,7 +410,7 @@ function SkillsSection({ disabled }: { disabled: boolean }) {
 
       {open && (
         <div className="space-y-3 px-3 pb-3">
-          <p className="px-0.5 text-[11px] leading-5 text-[#4a4a4a]">
+          <p className="px-0.5 text-[11px] leading-5 text-slate-500">
             Reusable workflows synced into `/workspace/.pi/skills/ember-managed/`. Enabled skills are available to Pi.
           </p>
 
@@ -429,7 +429,7 @@ function SkillsSection({ disabled }: { disabled: boolean }) {
           )}
 
           {skills.length === 0 ? (
-            <p className="px-1 text-[12px] text-[#4a4a4a]">
+            <p className="px-1 text-[12px] text-slate-400">
               No skills yet. Create one to sync a reusable Pi workflow into the workspace.
             </p>
           ) : (
@@ -474,18 +474,18 @@ function SkillsSection({ disabled }: { disabled: boolean }) {
 
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
-                          <span className={`text-[12px] ${skill.enabled ? 'text-[#e2e2e2]' : 'text-[#7a7a7a]'}`}>
+                          <span className={`text-[12px] ${skill.enabled ? 'text-slate-200' : 'text-slate-400'}`}>
                             {skill.name}
                           </span>
                           <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-mono uppercase tracking-wider ${
                             skill.enabled
                               ? 'bg-[rgba(232,92,42,0.12)] text-[#e85c2a]'
-                              : 'bg-white/[0.04] text-[#4a4a4a]'
+                              : 'bg-white/[0.04] text-slate-500'
                           }`}>
                             {skill.enabled ? 'enabled' : 'disabled'}
                           </span>
                         </div>
-                        <p className="mt-1 text-[11px] leading-5 text-[#5a5a5a]">
+                        <p className="mt-1 text-[11px] leading-5 text-slate-400">
                           {summary}
                         </p>
                       </div>
@@ -493,13 +493,13 @@ function SkillsSection({ disabled }: { disabled: boolean }) {
                       <div className="flex shrink-0 gap-2">
                         <button
                           onClick={() => startEditing(skill.id, skill)}
-                          className="text-[10px] text-[#4a4a4a] transition-colors hover:text-[#6b6b6b]"
+                          className="text-[10px] text-slate-500 transition-colors hover:text-slate-200"
                         >
                           {expanded ? 'close' : 'edit'}
                         </button>
                         <button
                           onClick={() => deleteSkill(skill.id)}
-                          className="text-[10px] text-[#4a4a4a] transition-colors hover:text-[#e05252]"
+                          className="text-[10px] text-slate-500 transition-colors hover:text-[#e05252]"
                         >
                           delete
                         </button>
@@ -563,7 +563,7 @@ function SkillEditor({
 }: SkillEditorProps) {
   return (
     <div className="space-y-2 rounded-xl border border-white/8 bg-black/20 px-3 py-3">
-      <p className="text-[10px] uppercase tracking-widest text-[#4a4a4a]">{title}</p>
+      <p className="text-[10px] uppercase tracking-widest text-slate-500">{title}</p>
       <input
         value={draft.name}
         onChange={(event) => onChange({ ...draft, name: event.target.value })}
@@ -581,19 +581,19 @@ function SkillEditor({
         onChange={(event) => onChange({ ...draft, content: event.target.value })}
         rows={10}
         placeholder={defaultSkillTemplate(draft.name)}
-        className="w-full resize-none rounded-lg border border-white/8 bg-black/30 px-2.5 py-2 font-mono text-[11px] text-[#c0c0c0] outline-none transition focus:border-white/15"
+        className="w-full resize-none rounded-lg border border-white/8 bg-black/30 px-2.5 py-2 font-mono text-[11px] text-slate-300 outline-none transition focus:border-white/15"
       />
       <div className="flex justify-end gap-2">
         <button
           onClick={onCancel}
-          className="text-[10px] text-[#4a4a4a] transition-colors hover:text-[#6b6b6b]"
+          className="text-[10px] text-slate-500 transition-colors hover:text-slate-200"
         >
           cancel
         </button>
         <button
           onClick={onSave}
           disabled={saveDisabled || !draft.name.trim()}
-          className="text-[10px] text-[#e85c2a] transition-colors hover:text-[#d44f20] disabled:text-[#3a3a3a]"
+          className="text-[10px] text-[#e85c2a] transition-colors hover:text-[#d44f20] disabled:text-slate-600"
         >
           {saveLabel}
         </button>
@@ -615,7 +615,7 @@ function GeneratedFilesDrawer() {
   const managedSkills = buildPiManagedSkills(skills, memoryMode);
 
   return (
-    <div className="shrink-0 border-t border-[#1a1a1a]">
+    <div className="shrink-0 border-t border-white/6">
       <SectionHeader
         title="Generated Pi Files"
         meta={`${managedSkills.length} skills`}
@@ -625,12 +625,12 @@ function GeneratedFilesDrawer() {
 
       {open && (
         <div className="space-y-2 px-3 pb-3">
-          <p className="px-0.5 text-[11px] leading-5 text-[#4a4a4a]">
+          <p className="px-0.5 text-[11px] leading-5 text-slate-500">
             Advanced preview only. Ember writes these files for Pi automatically.
           </p>
 
           <div className="rounded-xl border border-white/8 bg-black/30 px-3 py-2.5">
-            <p className="text-[10px] uppercase tracking-widest text-[#4a4a4a]">
+            <p className="text-[10px] uppercase tracking-widest text-slate-500">
               /workspace/.pi/APPEND_SYSTEM.md
             </p>
             <pre className="mt-2 max-h-32 overflow-y-auto whitespace-pre-wrap break-words font-mono text-[10px] leading-relaxed text-[#4caf78]/70">
@@ -639,7 +639,7 @@ function GeneratedFilesDrawer() {
           </div>
 
           <div className="rounded-xl border border-white/8 bg-black/30 px-3 py-2.5">
-            <p className="text-[10px] uppercase tracking-widest text-[#4a4a4a]">
+            <p className="text-[10px] uppercase tracking-widest text-slate-500">
               /workspace/.pi/skills/ember-managed/
             </p>
             {managedSkills.length > 0 ? (
@@ -647,13 +647,13 @@ function GeneratedFilesDrawer() {
                 {managedSkills.map((skill) => (
                   <div key={skill.slug} className="font-mono text-[10px] leading-relaxed text-slate-400">
                     <span className="text-[#e85c2a]/80">{skill.slug}</span>
-                    <span className="text-[#3a3a3a]"> — </span>
+                    <span className="text-slate-600"> — </span>
                     <span>{skill.description}</span>
                   </div>
                 ))}
               </div>
             ) : (
-              <p className="mt-2 text-[11px] text-[#3a3a3a]">
+              <p className="mt-2 text-[11px] text-slate-500">
                 No managed Pi skill files will be generated right now.
               </p>
             )}
@@ -679,13 +679,13 @@ function SectionHeader({ title, meta, open, onToggle, action }: SectionHeaderPro
         onClick={onToggle}
         className="group flex min-w-0 flex-1 items-center gap-2 text-left"
       >
-        <span className={`text-[10px] text-[#4a4a4a] transition-transform ${open ? 'rotate-90' : ''}`}>▶</span>
-        <span className="flex-1 text-[10px] uppercase tracking-widest text-[#4a4a4a] transition-colors group-hover:text-[#6b6b6b]">
+        <span className={`text-[10px] text-slate-500 transition-transform ${open ? 'rotate-90' : ''}`}>▶</span>
+        <span className="flex-1 text-[10px] uppercase tracking-widest text-slate-500 transition-colors group-hover:text-slate-300">
           {title}
         </span>
       </button>
       {action}
-      {meta && <span className="text-[10px] font-mono text-[#2a2a2a]">{meta}</span>}
+      {meta && <span className="text-[10px] font-mono text-slate-500">{meta}</span>}
     </div>
   );
 }

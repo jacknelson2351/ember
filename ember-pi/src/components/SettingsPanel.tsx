@@ -438,8 +438,8 @@ function Btn({
 function InfoChip({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
   return (
     <div className="rounded-xl border border-white/8 bg-white/[0.02] px-3 py-2">
-      <p className="text-[10px] uppercase tracking-widest text-slate-600">{label}</p>
-      <p className={`mt-0.5 truncate text-[11px] text-slate-400 ${mono ? 'font-mono' : ''}`} title={value}>{value}</p>
+      <p className="text-[10px] uppercase tracking-widest text-slate-500">{label}</p>
+      <p className={`mt-0.5 truncate text-[11px] text-slate-300 ${mono ? 'font-mono' : ''}`} title={value}>{value}</p>
     </div>
   );
 }
@@ -483,7 +483,7 @@ function SessionSection() {
     user:   'text-[#5f8fff]',
     agent:  'text-[#4caf78]',
     tool:   'text-[#f5a623]',
-    system: 'text-[#6b6b6b]',
+    system: 'text-slate-500',
   };
 
   return (
@@ -492,29 +492,29 @@ function SessionSection() {
         <Label>Session events</Label>
         <button
           onClick={clearSessionLog}
-          className="text-[11px] text-[#3a3a3a] hover:text-[#e05252] transition-colors"
+          className="text-[11px] text-slate-500 hover:text-red-400 transition-colors"
         >
           clear
         </button>
       </div>
-      <p className="text-[10px] text-slate-700 -mt-1">
+      <p className="text-[10px] text-slate-500 -mt-1">
         Live transcript of this session — cleared on reload. {sessionLog.length} event{sessionLog.length !== 1 ? 's' : ''}.
       </p>
       <div className="flex-1 overflow-y-auto space-y-1">
         {sessionLog.length === 0 && (
-          <p className="text-[#2a2a2a] text-[12px] pt-1">No events yet.</p>
+          <p className="text-slate-400 text-[12px] pt-2">No events yet.</p>
         )}
         {sessionLog.slice().reverse().map((e) => (
-          <div key={e.id} className="py-1.5 border-b border-[#0f0f0f] last:border-0">
+          <div key={e.id} className="py-1.5 border-b border-white/6 last:border-0">
             <div className="flex items-center gap-2 mb-0.5">
-              <span className={`text-[10px] font-mono uppercase ${typeColor[e.type] ?? 'text-[#6b6b6b]'}`}>
+              <span className={`text-[10px] font-mono uppercase ${typeColor[e.type] ?? 'text-slate-500'}`}>
                 {e.type}
               </span>
-              <span className="text-[10px] text-[#2a2a2a]">
+              <span className="text-[10px] text-slate-500">
                 {new Date(e.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
               </span>
             </div>
-            <p className="text-[11px] text-[#6b6b6b] leading-relaxed line-clamp-2 break-words">
+            <p className="text-[11px] text-slate-400 leading-relaxed line-clamp-2 break-words">
               {e.content}
             </p>
           </div>
